@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PI订单管理系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.5/dist/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 15px 20px; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border-radius: 12px; color: white; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3); }
+        .header h1 { font-size: 24px; font-weight: 600; }
+        .header .user-info { display: flex; align-items: center; gap: 15px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-edit { background: #f59e0b; color: white; }
+        .btn-edit:hover { background: #d97706; }
+        .btn-secondary { background: #e5e7eb; color: #374151; }
+        .btn-secondary:hover { background: #d1d5db; }
+        .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 14px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f9fafb; font-weight: 600; color: #374151; }
+        tr:hover { background: #f9fafb; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; animation: fadeIn 0.2s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .modal.active { display: flex; }
+        .modal-content { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 550px; animation: slideUp 0.3s; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; margin-bottom: 6px; font-weight: 500; color: #374151; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; padding: 8px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .tab { padding: 12px 24px; border: none; background: transparent; border-radius: 8px; cursor: pointer; font-weight: 500; color: #6b7280; transition: all 0.2s; }
+        .tab.active { background: #2563eb; color: white; }
+        .tab:hover:not(.active) { background: #f3f4f6; }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+        .stat-card { background: white; padding: 24px; border-radius: 12px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-value { font-size: 32px; font-weight: 700; color: #2563eb; margin-bottom: 8px; }
+        .stat-label { color: #6b7280; font-size: 14px; }
+        .search-bar { display: flex; gap: 10px; margin-bottom: 15px; }
+        .search-bar input { flex: 1; padding: 10px 15px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; }
+        .action-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .auto-code-hint { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #16a34a; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container" id="app">
+        <div class="header">
+            <h1>📦 PI订单管理系统</h1>
+            <div class="user-info">
+                <span>客户端版本 v1.0</span>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card"><div class="stat-value">{{ stats.products }}</div><div class="stat-label">产品数量</div></div>
+            <div class="stat-card"><div class="stat-value">{{ stats.customers }}</div><div class="stat-label">客户数量</div></div>
+            <div class="stat-card"><div class="stat-value">{{ stats.suppliers }}</div><div class="stat-label">供应商数量</div></div>
+            <div class="stat-card"><div class="stat-value">{{ stats.piOrders }}</div><div class="stat-label">PI订单</div></div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab" :class="{ active: activeTab === 'products' }" @click="activeTab = 'products'">产品管理</button>
+            <button class="tab" :class="{ active: activeTab === 'customers' }" @click="activeTab = 'customers'">客户管理</button>
+            <button class="tab" :class="{ active: activeTab === 'suppliers' }" @click="activeTab = 'suppliers'">供应商管理</button>
+            <button class="tab" :class="{ active: activeTab === 'pi' }" @click="activeTab = 'pi'">PI管理</button>
+        </div>
+
+        <div class="card" v-if="activeTab === 'products'">
+            <div class="action-bar">
+                <h2 style="font-size: 18px; font-weight: 600;">产品列表</h2>
+                <button class="btn btn-primary" @click="openProductModal()">+ 新增产品</button>
+            </div>
+            <table>
+                <tr><th>产品编号</th><th>OE号</th><th>品牌</th><th>每箱数量</th><th>操作</th></tr>
+                <tr v-for="item in products" :key="item.id">
+                    <td>{{ item.product_code }}</td>
+                    <td>{{ item.oe_number }}</td>
+                    <td>{{ item.brand }}</td>
+                    <td>{{ item.units_per_carton }}</td>
+                    <td>
+                        <button class="btn btn-edit" style="padding: 6px 12px; margin-right: 5px;" @click="editProduct(item)">编辑</button>
+                        <button class="btn btn-danger" style="padding: 6px 12px;" @click="deleteProduct(item.id)">删除</button>
+                    </td>
+                </tr>
+            </table>
+            <div v-if="products.length === 0" style="text-align: center; padding: 40px; color: #9ca3af;">暂无产品数据</div>
+        </div>
+
+        <div class="card" v-if="activeTab === 'customers'">
+            <div class="action-bar">
+                <h2 style="font-size: 18px; font-weight: 600;">客户列表</h2>
+                <button class="btn btn-primary" @click="openCustomerModal()">+ 新增客户</button>
+            </div>
+            <table>
+                <tr><th>客户编号</th><th>名称</th><th>国家</th><th>付款条款</th><th>操作</th></tr>
+                <tr v-for="item in customers" :key="item.id">
+                    <td>{{ item.customer_code }}</td>
+                    <td>{{ item.customer_name }}</td>
+                    <td>{{ item.country }}</td>
+                    <td>{{ item.payment_terms }}</td>
+                    <td>
+                        <button class="btn btn-edit" style="padding: 6px 12px; margin-right: 5px;" @click="editCustomer(item)">编辑</button>
+                        <button class="btn btn-danger" style="padding: 6px 12px;" @click="deleteCustomer(item.id)">删除</button>
+                    </td>
+                </tr>
+            </table>
+            <div v-if="customers.length === 0" style="text-align: center; padding: 40px; color: #9ca3af;">暂无客户数据</div>
+        </div>
+
+        <div class="card" v-if="activeTab === 'suppliers'">
+            <div class="action-bar">
+                <h2 style="font-size: 18px; font-weight: 600;">供应商列表</h2>
+                <button class="btn btn-primary" @click="openSupplierModal()">+ 新增供应商</button>
+            </div>
+            <table>
+                <tr><th>供应商编号</th><th>名称</th><th>地区</th><th>供货周期</th><th>操作</th></tr>
+                <tr v-for="item in suppliers" :key="item.id">
+                    <td>{{ item.supplier_code }}</td>
+                    <td>{{ item.supplier_name }}</td>
+                    <td>{{ item.region }}</td>
+                    <td>{{ item.supply_cycle_days }}天</td>
+                    <td>
+                        <button class="btn btn-edit" style="padding: 6px 12px; margin-right: 5px;" @click="editSupplier(item)">编辑</button>
+                        <button class="btn btn-danger" style="padding: 6px 12px;" @click="deleteSupplier(item.id)">删除</button>
+                    </td>
+                </tr>
+            </table>
+            <div v-if="suppliers.length === 0" style="text-align: center; padding: 40px; color: #9ca3af;">暂无供应商数据</div>
+        </div>
+
+        <div class="card" v-if="activeTab === 'pi'">
+            <div class="action-bar">
+                <h2 style="font-size: 18px; font-weight: 600;">PI订单列表</h2>
+                <button class="btn btn-primary" @click="openPIModal()">+ 新建PI</button>
+            </div>
+            <table>
+                <tr><th>PI号</th><th>金额(USD)</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
+                <tr v-for="item in piOrders" :key="item.id">
+                    <td>{{ item.pi_no }}</td>
+                    <td>{{ item.total_amount }}</td>
+                    <td>{{ getStatusText(item.status) }}</td>
+                    <td>{{ formatDate(item.created_at) }}</td>
+                    <td>
+                        <button class="btn btn-edit" style="padding: 6px 12px;">编辑</button>
+                    </td>
+                </tr>
+            </table>
+            <div v-if="piOrders.length === 0" style="text-align: center; padding: 40px; color: #9ca3af;">暂无PI订单数据</div>
+        </div>
+
+        <div class="modal" :class="{ active: showModal }">
+            <div class="modal-content">
+                <h3 style="margin-bottom: 20px; font-size: 18px;">{{ isEdit ? '编辑' : '新增' }} {{ modalType }}</h3>
+                
+                <div v-if="modalType === '产品'">
+                    <div class="form-group"><label>部门</label>
+                        <select v-model="formData.dept_id">
+                            <option value="S">索英普(S)</option>
+                            <option value="W">维那(W)</option>
+                            <option value="M">马迪那(M)</option>
+                            <option value="D">银达(D)</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>OE号</label><input v-model="formData.oe_number" placeholder="请输入OE号" /></div>
+                    <div class="form-group"><label>品牌</label><input v-model="formData.brand" placeholder="请输入品牌" /></div>
+                    <div class="form-group"><label>每箱数量</label><input type="number" v-model="formData.units_per_carton" placeholder="请输入每箱数量" /></div>
+                    <div class="form-group"><label>产品描述</label><textarea v-model="formData.detail_desc" rows="3" placeholder="请输入产品描述"></textarea></div>
+                </div>
+                
+                <div v-if="modalType === '客户'">
+                    <div class="auto-code-hint">💡 客户编号将由系统自动生成（3位字母/数字组合）</div>
+                    <div class="form-group"><label>部门</label>
+                        <select v-model="formData.dept_id">
+                            <option value="S">索英普(S)</option>
+                            <option value="W">维那(W)</option>
+                            <option value="M">马迪那(M)</option>
+                            <option value="D">银达(D)</option>
+                        </select>
+                    </div>
+                    <div v-if="isEdit" class="form-group">
+                        <label>客户编号</label>
+                        <input v-model="formData.customer_code" disabled style="background: #f3f4f6; color: #9ca3af;" />
+                    </div>
+                    <div class="form-group"><label>客户名称</label><input v-model="formData.customer_name" placeholder="请输入客户名称" /></div>
+                    <div class="form-group"><label>国家</label><input v-model="formData.country" placeholder="请输入国家" /></div>
+                    <div class="form-group"><label>付款条款</label><input v-model="formData.payment_terms" placeholder="如：T/T 30天" /></div>
+                </div>
+                
+                <div v-if="modalType === '供应商'">
+                    <div class="form-group"><label>供应商编号</label><input v-model="formData.supplier_code" placeholder="请输入供应商编号" /></div>
+                    <div class="form-group"><label>供应商名称</label><input v-model="formData.supplier_name" placeholder="请输入供应商名称" /></div>
+                    <div class="form-group"><label>地区</label><input v-model="formData.region" placeholder="请输入地区" /></div>
+                    <div class="form-group"><label>供货周期(天)</label><input type="number" v-model="formData.supply_cycle_days" placeholder="请输入供货周期" /></div>
+                </div>
+                
+                <div v-if="modalType === 'PI'">
+                    <div class="form-group"><label>部门</label>
+                        <select v-model="formData.dept_id">
+                            <option value="S">索英普(S)</option>
+                            <option value="W">维那(W)</option>
+                            <option value="M">马迪那(M)</option>
+                            <option value="D">银达(D)</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>客户</label>
+                        <select v-model="formData.customer_id">
+                            <option value="">请选择客户</option>
+                            <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.customer_code }} - {{ c.customer_name }}</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 12px; margin-top: 25px;">
+                    <button class="btn btn-primary" @click="saveData()" style="flex: 1;">{{ isEdit ? '保存修改' : '确认添加' }}</button>
+                    <button class="btn btn-secondary" @click="closeModal()">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted } = Vue;
+        createApp({
+            setup() {
+                const activeTab = ref('products');
+                const showModal = ref(false);
+                const modalType = ref('');
+                const isEdit = ref(false);
+                const editId = ref(null);
+                const formData = reactive({});
+                
+                const products = ref([]);
+                const customers = ref([]);
+                const suppliers = ref([]);
+                const piOrders = ref([]);
+                const stats = reactive({ products: 0, customers: 0, suppliers: 0, piOrders: 0 });
+
+                const loadData = async () => {
+                    try {
+                        const [p, c, s, pi] = await Promise.all([
+                            axios.get('/api/products'),
+                            axios.get('/api/customers'),
+                            axios.get('/api/suppliers'),
+                            axios.get('/api/pi')
+                        ]);
+                        products.value = p.data;
+                        customers.value = c.data;
+                        suppliers.value = s.data;
+                        piOrders.value = pi.data;
+                        stats.products = p.data.length;
+                        stats.customers = c.data.length;
+                        stats.suppliers = s.data.length;
+                        stats.piOrders = pi.data.length;
+                    } catch (e) { 
+                        console.error('数据加载失败:', e);
+                        alert('数据加载失败，请检查网络连接');
+                    }
+                };
+
+                const resetForm = () => {
+                    Object.keys(formData).forEach(k => delete formData[k]);
+                    formData.dept_id = 'S';
+                };
+
+                const openProductModal = () => { modalType.value = '产品'; isEdit.value = false; resetForm(); showModal.value = true; };
+                const openCustomerModal = () => { modalType.value = '客户'; isEdit.value = false; resetForm(); showModal.value = true; };
+                const openSupplierModal = () => { modalType.value = '供应商'; isEdit.value = false; resetForm(); showModal.value = true; };
+                const openPIModal = () => { modalType.value = 'PI'; isEdit.value = false; resetForm(); showModal.value = true; };
+                
+                const editProduct = (item) => { Object.assign(formData, item); modalType.value = '产品'; isEdit.value = true; editId.value = item.id; showModal.value = true; };
+                const editCustomer = (item) => { Object.assign(formData, item); modalType.value = '客户'; isEdit.value = true; editId.value = item.id; showModal.value = true; };
+                const editSupplier = (item) => { Object.assign(formData, item); modalType.value = '供应商'; isEdit.value = true; editId.value = item.id; showModal.value = true; };
+
+                const closeModal = () => { showModal.value = false; isEdit.value = false; editId.value = null; };
+
+                const saveData = async () => {
+                    try {
+                        if (modalType.value === '产品') {
+                            if (!formData.oe_number) { alert('请输入OE号'); return; }
+                            if (isEdit.value) await axios.put(`/api/products/${editId.value}`, formData);
+                            else await axios.post('/api/products', formData);
+                        } else if (modalType.value === '客户') {
+                            if (!formData.customer_name) { alert('请输入客户名称'); return; }
+                            if (!formData.country) { alert('请输入国家'); return; }
+                            const data = { ...formData };
+                            delete data.customer_code;
+                            if (isEdit.value) await axios.put(`/api/customers/${editId.value}`, data);
+                            else await axios.post('/api/customers', data);
+                        } else if (modalType.value === '供应商') {
+                            if (!formData.supplier_name) { alert('请输入供应商名称'); return; }
+                            if (isEdit.value) await axios.put(`/api/suppliers/${editId.value}`, formData);
+                            else await axios.post('/api/suppliers', formData);
+                        } else if (modalType.value === 'PI') {
+                            if (!formData.customer_id) { alert('请选择客户'); return; }
+                            await axios.post('/api/pi', { ...formData, items: [], payment_stages: [] });
+                        }
+                        closeModal();
+                        loadData();
+                        alert('保存成功');
+                    } catch (e) { 
+                        console.error('保存失败:', e);
+                        alert('保存失败'); 
+                    }
+                };
+
+                const deleteProduct = async (id) => { 
+                    if (confirm('确定删除该产品？')) { 
+                        try {
+                            await axios.delete(`/api/products/${id}`); 
+                            loadData();
+                            alert('删除成功');
+                        } catch (e) {
+                            alert('删除失败');
+                        }
+                    } 
+                };
+                const deleteCustomer = async (id) => { 
+                    if (confirm('确定删除该客户？')) { 
+                        try {
+                            await axios.delete(`/api/customers/${id}`); 
+                            loadData();
+                            alert('删除成功');
+                        } catch (e) {
+                            alert('删除失败');
+                        }
+                    } 
+                };
+                const deleteSupplier = async (id) => { 
+                    if (confirm('确定删除该供应商？')) { 
+                        try {
+                            await axios.delete(`/api/suppliers/${id}`); 
+                            loadData();
+                            alert('删除成功');
+                        } catch (e) {
+                            alert('删除失败');
+                        }
+                    } 
+                };
+
+                const getStatusText = (status) => { 
+                    const map = { 1: '草稿', 2: '已确认', 3: '已发货', 4: '已完成' }; 
+                    return map[status] || '未知'; 
+                };
+                const formatDate = (date) => { 
+                    return new Date(date).toLocaleDateString('zh-CN'); 
+                };
+
+                onMounted(() => loadData());
+                return { activeTab, showModal, modalType, isEdit, formData, products, customers, suppliers, piOrders, stats, openProductModal, openCustomerModal, openSupplierModal, openPIModal, editProduct, editCustomer, editSupplier, closeModal, saveData, deleteProduct, deleteCustomer, deleteSupplier, getStatusText, formatDate };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
