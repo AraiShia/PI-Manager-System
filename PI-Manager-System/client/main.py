@@ -3565,12 +3565,6 @@ class MainWindow(QMainWindow):
         self.order_summary_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.order_summary_table.setAlternatingRowColors(True)
         
-        # 加载中提示
-        loading_label = QLabel("📊 正在加载订单数据...")
-        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        loading_label.setStyleSheet("color: #6b7280; font-size: 14px; padding: 20px;")
-        self.order_summary_table.setIndexWidget(QModelIndex(), loading_label)
-        
         layout.addWidget(self.order_summary_table)
         
         # 状态栏显示统计信息
