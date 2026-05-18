@@ -570,3 +570,33 @@ class ApiClient:
     def get_latest_price(self, customer_id: int, product_id: int) -> Dict:
         """获取客户采购该产品的最后一次价格"""
         return self.get(f"/quotes/customer/{customer_id}/product/{product_id}/price")
+
+    # ========== 客户回复 ==========
+
+    def get_customer_replies(self, skip: int = 0, limit: int = 100) -> List[Dict]:
+        """获取所有客户回复"""
+        return self.get("/customer-replies", params={"skip": skip, "limit": limit})
+
+    def get_customer_replies_by_pi(self, pi_id: int) -> List[Dict]:
+        """获取某PI的所有客户回复"""
+        return self.get(f"/customer-replies/pi/{pi_id}")
+
+    def get_latest_customer_reply(self, pi_id: int) -> Optional[Dict]:
+        """获取某PI的最新客户回复"""
+        return self.get(f"/customer-replies/pi/{pi_id}/latest")
+
+    def get_customer_replies_by_customer(self, customer_id: int) -> List[Dict]:
+        """获取某客户的所有回复"""
+        return self.get(f"/customer-replies/customer/{customer_id}")
+
+    def create_customer_reply(self, data: Dict) -> Dict:
+        """创建客户回复"""
+        return self.post("/customer-replies", data)
+
+    def update_customer_reply(self, reply_id: int, data: Dict) -> Dict:
+        """更新客户回复"""
+        return self.put(f"/customer-replies/{reply_id}", data)
+
+    def delete_customer_reply(self, reply_id: int) -> Dict:
+        """删除客户回复"""
+        return self.delete(f"/customer-replies/{reply_id}")

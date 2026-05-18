@@ -21,6 +21,7 @@ from routers.product_category import router as category_router
 from routers.image import router as image_router
 from routers.auth import router as auth_router
 from routers.product_supplier import router as product_supplier_router
+from routers.customer_reply import router as customer_reply_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -67,6 +68,7 @@ app.include_router(quote_router)
 app.include_router(category_router, prefix="/api/product-categories", tags=["product-categories"])
 app.include_router(image_router, prefix="/api/images", tags=["images"])
 app.include_router(auth_router)
+app.include_router(customer_reply_router)
 
 static_dir = os.path.join(base_dir, "static")
 if os.path.exists(static_dir):
