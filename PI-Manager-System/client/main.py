@@ -3584,20 +3584,39 @@ class MainWindow(QMainWindow):
     
     def load_order_summary(self):
         """加载订单总表数据"""
+        print("[DEBUG] 订单总表: 开始加载数据")
         self._show_loading_tip("正在加载订单总表...")
         
         def fetch():
             try:
+                print("[DEBUG] 订单总表: 开始获取所有模块数据...")
                 # 获取所有相关数据
                 pi_list = self.api_client.get_pi_orders() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(pi_list)} 条PI订单")
+                
                 purchase_list = self.api_client.get_purchase_orders() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(purchase_list)} 条采购订单")
+                
                 shipment_list = self.api_client.get_shipments() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(shipment_list)} 条出货记录")
+                
                 customer_payment_list = self.api_client.get_customer_payments() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(customer_payment_list)} 条客户付款")
+                
                 supplier_payment_list = self.api_client.get_supplier_payments() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(supplier_payment_list)} 条供应商付款")
+                
                 inventory_list = self.api_client.get_inventories() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(inventory_list)} 条库存记录")
+                
                 products = self.api_client.get_products() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(products)} 个产品")
+                
                 customers = self.api_client.get_customers() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(customers)} 个客户")
+                
                 suppliers = self.api_client.get_suppliers() or []
+                print(f"[DEBUG] 订单总表: 获取到 {len(suppliers)} 个供应商")
                 
                 return {
                     'pi_list': pi_list,
@@ -3611,7 +3630,9 @@ class MainWindow(QMainWindow):
                     'suppliers': suppliers
                 }
             except Exception as e:
-                print(f"加载订单总表数据失败: {e}")
+                print(f"[ERROR] 订单总表: 加载数据失败: {e}")
+                import traceback
+                traceback.print_exc()
                 return None
         
         from PySide6.QtCore import QThread
@@ -3630,6 +3651,7 @@ class MainWindow(QMainWindow):
     
     def _on_order_summary_loaded(self, thread):
         """订单总表数据加载完成"""
+        print("[DEBUG] 订单总表: 数据加载完成回调")
         # 获取线程中的数据
         class LoaderThread(QThread):
             pass
@@ -3637,6 +3659,8 @@ class MainWindow(QMainWindow):
         # 重新执行获取数据
         try:
             pi_list = self.api_client.get_pi_orders() or []
+            print(f"[DEBUG] 订单总表: 处理 {len(pi_list)} 条PI订单")
+            
             purchase_list = self.api_client.get_purchase_orders() or []
             shipment_list = self.api_client.get_shipments() or []
             customer_payment_list = self.api_client.get_customer_payments() or []
@@ -3644,19 +3668,28 @@ class MainWindow(QMainWindow):
             
             # 构建订单总表数据
             orders = []
-            for pi in pi_list:
+            for i, pi in enumerate(pi_list):
+                print(f"[DEBUG] 订单总表: 构建第 {i+1}/{len(pi_list)} 行数据, PI_NO={pi.get('pi_no', 'N/A')}")
                 order = self._build_order_summary_row(pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list)
                 orders.append(order)
             
+            print(f"[DEBUG] 订单总表: 构建完成, 共 {len(orders)} 行数据")
             self._populate_order_summary_table(orders)
             self._hide_loading_tip()
             self.order_summary_status.setText(f"共 {len(orders)} 条订单记录")
+            print("[DEBUG] 订单总表: UI更新完成")
         except Exception as e:
-            print(f"处理订单总表数据失败: {e}")
+            print(f"[ERROR] 订单总表: 处理数据失败: {e}")
+            import traceback
+            traceback.print_exc()
             self._hide_loading_tip()
     
     def _build_order_summary_row(self, pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list):
         """构建订单总表单行数据"""
+        pi_id = pi.get('id', 'N/A')
+        pi_no = pi.get('pi_no', 'N/A')
+        print(f"[DEBUG] 订单总表: 构建PI_ID={pi_id}, PI_NO={pi_no}")
+        
         # 基础信息
         order_date = pi.get('created_at', '')[:10] if pi.get('created_at') else ''
         order_no = pi.get('pi_no', '')
@@ -3667,6 +3700,7 @@ class MainWindow(QMainWindow):
         if product_id:
             products = self.api_client.get_products() or []
             product = next((p for p in products if p.get('id') == product_id), None)
+            print(f"[DEBUG] 订单总表: 找到产品ID={product_id}, 产品名={product.get('name', 'N/A') if product else 'None'}")
         
         customer_id = pi.get('customer_id')
         customer = None
@@ -3675,7 +3709,12 @@ class MainWindow(QMainWindow):
             customer = next((c for c in customers if c.get('id') == customer_id), None)
         
         # 查找采购信息
-        purchase = next((p for p in purchase_list if p.get('pi_id') == pi.get('id')), None)
+        purchase = next((p for p in purchase_list if p.get('pi_id') == pi_id), None)
+        if purchase:
+            print(f"[DEBUG] 订单总表: 找到采购订单ID={purchase.get('id')}")
+        else:
+            print(f"[DEBUG] 订单总表: 未找到采购订单")
+        
         supplier_id = purchase.get('supplier_id') if purchase else None
         supplier = None
         if supplier_id:
@@ -3683,10 +3722,12 @@ class MainWindow(QMainWindow):
             supplier = next((s for s in suppliers if s.get('id') == supplier_id), None)
         
         # 查找出货信息
-        shipment = next((s for s in shipment_list if s.get('pi_id') == pi.get('id')), None)
+        shipment = next((s for s in shipment_list if s.get('pi_id') == pi_id), None)
+        if shipment:
+            print(f"[DEBUG] 订单总表: 找到出货记录ID={shipment.get('id')}")
         
         # 查找客户付款
-        customer_payment = next((cp for cp in customer_payment_list if cp.get('pi_id') == pi.get('id')), None)
+        customer_payment = next((cp for cp in customer_payment_list if cp.get('pi_id') == pi_id), None)
         
         # 查找供应商付款
         purchase_id = purchase.get('id') if purchase else None
@@ -3694,6 +3735,7 @@ class MainWindow(QMainWindow):
         
         # 状态判断
         is_completed = pi.get('status') == 4
+        print(f"[DEBUG] 订单总表: PI状态={pi.get('status')}, 是否完成={is_completed}")
         
         return {
             'order_date': order_date,
