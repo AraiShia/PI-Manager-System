@@ -3916,14 +3916,15 @@ class MainWindow(QMainWindow):
         customer_payment = next((cp for cp in customer_payment_list if cp.get('pi_id') == pi_id), None)
         
         # 查找供应商付款
-        purchase_id = purchase.get('id') if purchase else None
-        supplier_payment = next((sp for sp in supplier_payment_list if sp.get('purchase_id') == purchase_id), None)
+        purchase_id_for_supplier = purchase.get('id') if purchase else None
+        supplier_payment = next((sp for sp in supplier_payment_list if sp.get('purchase_id') == purchase_id_for_supplier), None)
         
         # 状态判断
         is_completed = pi.get('status') == 4
         print(f"[DEBUG] 订单总表: PI状态={pi.get('status')}, 是否完成={is_completed}")
         
-        return {
+        # 构建订单数据 - 包含编辑所需的所有字段
+        order_data = {
             'order_date': order_date,
             'order_no': order_no,
             'customer_product_code': customer_code,
@@ -3933,6 +3934,9 @@ class MainWindow(QMainWindow):
             'image': product.get('image_url', '') if product else '',
             'customer_model': customer_code,
             'customer_name': customer.get('name', '') if customer else '',
+            'customer_contact': customer.get('contact', '') if customer else '',
+            'customer_phone': customer.get('phone', '') if customer else '',
+            'customer_address': customer.get('address', '') if customer else '',
             'quantity': quantity,
             'unit_price': unit_price,
             'total_amount': pi.get('total_amount', 0),
@@ -3943,7 +3947,8 @@ class MainWindow(QMainWindow):
             'shipping_fee': purchase.get('shipping_fee', 0) if purchase else 0,
             'misc_fee': purchase.get('misc_fee', 0) if purchase else 0,
             'supplier_name': supplier.get('name', '') if supplier else '',
-            'supplier_link': '',
+            'supplier_link': supplier.get('shop_link', '') if supplier else '',
+            'supplier_code': supplier.get('code', '') if supplier else '',
             'delivery_date': purchase.get('expected_date', '')[:10] if purchase and purchase.get('expected_date') else '',
             'is_received': '是' if shipment else '否',
             'supplier_deposit': supplier_payment.get('deposit_amount', 0) if supplier_payment else 0,
@@ -3959,9 +3964,17 @@ class MainWindow(QMainWindow):
             'carton_gross_weight': '',
             'total_weight': '',
             'brand': product.get('brand', '') if product else '',
+            'product_spec': product.get('specifications', '') if product else '',
             'invoice_status': '',
-            'status': '已完成' if is_completed else '进行中'
+            'status': '已完成' if is_completed else '进行中',
+            # 额外信息用于编辑
+            'pi_id': pi_id,
+            'product_id': product_id,
+            'customer_id': customer_id,
+            'purchase_id': purchase.get('id') if purchase else None,
         }
+        
+        return order_data
     
     def _populate_order_summary_table(self, orders):
         """填充订单总表数据"""
