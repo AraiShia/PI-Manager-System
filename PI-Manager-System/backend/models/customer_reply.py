@@ -4,7 +4,7 @@
 from sqlalchemy import Column, Integer, String, Text, Date, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from database import Base
+from app.database import Base
 
 
 class CustomerReply(Base):
@@ -18,10 +18,6 @@ class CustomerReply(Base):
     reply_content = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
-    # 关联关系
-    pi_order = relationship("PIOrder", back_populates="customer_replies")
-    customer = relationship("Customer", back_populates="customer_replies")
     
     def __repr__(self):
         return f"<CustomerReply(id={self.id}, pi_id={self.pi_id}, date={self.reply_date})>"
