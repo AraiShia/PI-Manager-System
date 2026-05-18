@@ -346,7 +346,7 @@ class OrderSummaryEditDialog(QDialog):
             self.customer_combo.clear()
             self.customer_combo.addItem("-- 请选择 --", None)
             for c in customers:
-                self.customer_combo.addItem(c.get('name', ''), c.get('id'))
+                self.customer_combo.addItem(c.get('customer_name', ''), c.get('id'))
         except Exception as e:
             print(f"加载客户列表失败: {e}")
     
@@ -357,7 +357,7 @@ class OrderSummaryEditDialog(QDialog):
             self.product_combo.clear()
             self.product_combo.addItem("-- 请选择 --", None)
             for p in products:
-                self.product_combo.addItem(f"{p.get('name', '')} ({p.get('oe_number', '')})", p.get('id'))
+                self.product_combo.addItem(f"{p.get('product_code', '')} ({p.get('oe_number', '')})", p.get('id'))
         except Exception as e:
             print(f"加载产品列表失败: {e}")
     
@@ -368,7 +368,7 @@ class OrderSummaryEditDialog(QDialog):
             self.supplier_combo.clear()
             self.supplier_combo.addItem("-- 请选择 --", None)
             for s in suppliers:
-                self.supplier_combo.addItem(s.get('name', ''), s.get('id'))
+                self.supplier_combo.addItem(s.get('supplier_name', ''), s.get('id'))
         except Exception as e:
             print(f"加载供应商列表失败: {e}")
     
