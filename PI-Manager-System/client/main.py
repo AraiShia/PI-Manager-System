@@ -3650,12 +3650,9 @@ class MainWindow(QMainWindow):
         thread.finished.connect(self._on_order_summary_loaded)
         thread.start()
     
-    def _on_order_summary_loaded(self, thread):
+    def _on_order_summary_loaded(self):
         """订单总表数据加载完成"""
         print("[DEBUG] 订单总表: 数据加载完成回调")
-        # 获取线程中的数据
-        class LoaderThread(QThread):
-            pass
         
         # 重新执行获取数据
         try:
