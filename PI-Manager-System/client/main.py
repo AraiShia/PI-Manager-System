@@ -2186,7 +2186,7 @@ class MainWindow(QMainWindow):
     def switch_tab(self, key):
         print(f"DEBUG - switch_tab called with key: {key}")
         tab_map = {"products": 0, "customers": 1, "suppliers": 2, "quotes": 3, "pi": 4, "purchase": 5,
-                   "shipment": 6, "customer_payment": 7, "supplier_payment": 8, "inventory": 9}
+                   "shipment": 6, "customer_payment": 7, "supplier_payment": 8, "inventory": 9, "order_summary": 10}
         self.content_stack.setCurrentIndex(tab_map.get(key, 0))
         for k, btn in self.tab_buttons.items():
             btn.setChecked(k == key)
@@ -2206,6 +2206,7 @@ class MainWindow(QMainWindow):
                 "customer_payment": self.load_customer_payments_async,
                 "supplier_payment": self.load_supplier_payments_async,
                 "inventory": self.load_inventories_async,
+                "order_summary": self.load_order_summary,
             }
             if key in refresh_map:
                 refresh_map[key]()
