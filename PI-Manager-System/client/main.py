@@ -3695,7 +3695,8 @@ class MainWindow(QMainWindow):
         customer_payment = next((cp for cp in customer_payment_list if cp.get('pi_id') == pi.get('id')), None)
         
         # 查找供应商付款
-        supplier_payment = next((sp for sp in supplier_payment_list if sp.get('purchase_id') == purchase.get('id') if purchase else False), None)
+        purchase_id = purchase.get('id') if purchase else None
+        supplier_payment = next((sp for sp in supplier_payment_list if sp.get('purchase_id') == purchase_id), None)
         
         # 状态判断
         is_completed = pi.get('status') == 4
