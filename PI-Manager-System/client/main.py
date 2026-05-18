@@ -41,6 +41,17 @@ from product_categories import get_category_options, get_category_code, get_cate
 from widgets.action_bar import ActionBarFactory
 from widgets.order_summary_edit_dialog import OrderSummaryEditDialog
 
+# 测试文件导入（可选）
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from test_customer_reply import CustomerReplyTester
+    HAS_CUSTOMER_REPLY_TEST = True
+except ImportError:
+    HAS_CUSTOMER_REPLY_TEST = False
+    CustomerReplyTester = None
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'config'))
 
@@ -3479,6 +3490,33 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_status_label'):
             self._status_label.setText("")
     
+    def _test_customer_reply(self):
+        """测试客户回复API"""
+        from PySide6.QtWidgets import QMessageBox
+        
+        if not HAS_CUSTOMER_REPLY_TEST or not CustomerReplyTester:
+            QMessageBox.information(self, "提示", "测试模块未导入成功")
+            return
+        
+        print("\n" + "="*60)
+        print("开始测试客户回复API...")
+        print("="*60)
+        
+        try:
+            tester = CustomerReplyTester(self.api_client)
+            results = tester.run_all_tests()
+            tester.print_summary()
+            
+            # 显示结果
+            msg = f"测试完成!\n\n通过: {results['passed']}/{results['total']}"
+            if results['failed'] > 0:
+                msg += f"\n失败: {results['failed']}"
+            QMessageBox.information(self, "测试结果", msg)
+        except Exception as e:
+            QMessageBox.warning(self, "测试失败", f"测试过程中出错:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+    
     def _update_work_status(self, task_id: str, text: str, progress: int = -1):
         """更新右下角工作状态"""
         if not hasattr(self, '_work_status_manager'):
@@ -3611,6 +3649,22 @@ class MainWindow(QMainWindow):
             QPushButton:hover { background-color: #059669; }
         """)
         toolbar.addWidget(export_btn)
+        
+        # 测试客户回复API按钮（仅开发调试用）
+        if HAS_CUSTOMER_REPLY_TEST and CustomerReplyTester:
+            test_btn = QPushButton("🧪 测试客户回复")
+            test_btn.clicked.connect(self._test_customer_reply)
+            test_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #8b5cf6;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover { background-color: #7c3aed; }
+            """)
+            toolbar.addWidget(test_btn)
         
         layout.addLayout(toolbar)
         
