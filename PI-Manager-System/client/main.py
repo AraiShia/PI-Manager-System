@@ -3997,10 +3997,14 @@ class MainWindow(QMainWindow):
             'customer_product_code': customer_code,
             'oe_number': oe_number or (product.get('oe_number', '') if product else ''),
             'customer_requirement': remark,
-            'product_name': product.get('name', '') if product else '',
-            'image': product.get('image_url', '') if product else '',
+            # 产品名使用 product_code 或 detail_desc
+            'product_name': product.get('product_code', '') if product else (product.get('detail_desc', '') if product else ''),
+            'product_code': product.get('product_code', '') if product else '',
+            'product_detail_desc': product.get('detail_desc', '') if product else '',
+            'image': product.get('default_image_url', '') if product else '',
             'customer_model': customer_code,
-            'customer_name': customer.get('name', '') if customer else '',
+            # 客户名使用 customer_name
+            'customer_name': customer.get('customer_name', '') if customer else '',
             'customer_contact': customer.get('contact', '') if customer else '',
             'customer_phone': customer.get('phone', '') if customer else '',
             'customer_address': customer.get('address', '') if customer else '',
@@ -4013,7 +4017,8 @@ class MainWindow(QMainWindow):
             'purchase_price': purchase.get('total_amount', 0) if purchase else 0,
             'shipping_fee': purchase.get('shipping_fee', 0) if purchase else 0,
             'misc_fee': purchase.get('misc_fee', 0) if purchase else 0,
-            'supplier_name': supplier.get('name', '') if supplier else '',
+            # 供应商名使用 supplier_name
+            'supplier_name': supplier.get('supplier_name', '') if supplier else '',
             'supplier_link': supplier.get('shop_link', '') if supplier else '',
             'supplier_code': supplier.get('code', '') if supplier else '',
             'delivery_date': purchase.get('expected_date', '')[:10] if purchase and purchase.get('expected_date') else '',
