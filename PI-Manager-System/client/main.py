@@ -3866,8 +3866,14 @@ class MainWindow(QMainWindow):
             supplier_payment_list = self.api_client.get_supplier_payments() or []
             
             # 获取客户和产品映射（用于快速查找）
-            customers = {c['id']: c for c in self.api_client.get_customers() or []}
-            products = {p['id']: p for p in self.api_client.get_products() or []}
+            customers_raw = self.api_client.get_customers() or []
+            products_raw = self.api_client.get_products() or []
+            
+            print(f"[DEBUG] 订单总表: 原始客户数据示例: {customers_raw[0] if customers_raw else '空'}")
+            print(f"[DEBUG] 订单总表: 原始产品数据示例: {products_raw[0] if products_raw else '空'}")
+            
+            customers = {c['id']: c for c in customers_raw}
+            products = {p['id']: p for p in products_raw}
             
             print(f"[DEBUG] 订单总表: 加载 {len(customers)} 个客户, {len(products)} 个产品")
             
@@ -3943,9 +3949,12 @@ class MainWindow(QMainWindow):
         product = products.get(product_id) if product_id else None
         if product:
             print(f"[DEBUG] 订单总表: 找到产品ID={product_id}, 产品名={product.get('name', 'N/A')}")
+        else:
+            print(f"[DEBUG] 订单总表: 未找到产品ID={product_id}, products字典keys={list(products.keys())}")
         
         # 获取客户信息
         customer_id = pi.get('customer_id')
+        print(f"[DEBUG] 订单总表: PI客户ID={customer_id}, 客户字典keys={list(customers.keys())}")
         customer = customers.get(customer_id) if customer_id else None
         if customer:
             print(f"[DEBUG] 订单总表: 找到客户ID={customer_id}, 客户={customer.get('name', 'N/A')}")
