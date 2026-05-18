@@ -12,8 +12,8 @@ class CustomerReply(Base):
     __tablename__ = "customer_replies"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    pi_id = Column(Integer, ForeignKey("pi_orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    pi_id = Column(Integer, ForeignKey("pi_proforma_invoice.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("crm_customer.id", ondelete="CASCADE"), nullable=False, index=True)
     reply_date = Column(Date, nullable=False)
     reply_content = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
