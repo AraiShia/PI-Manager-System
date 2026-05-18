@@ -3710,6 +3710,9 @@ class MainWindow(QMainWindow):
         # 绑定双击事件
         self.order_summary_table.cellDoubleClicked.connect(self._on_order_summary_double_click)
         
+        # 存储所有订单的完整数据，用于编辑
+        self._order_summary_orders = []
+        
         layout.addWidget(self.order_summary_table)
         
         # 状态栏显示统计信息
@@ -3826,7 +3829,8 @@ class MainWindow(QMainWindow):
                 order = self._build_order_summary_row(pi_detail or pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list, customers, products)
                 orders.append(order)
             
-            print(f"[DEBUG] 订单总表: 构建完成, 共 {len(orders)} 行数据")
+            print(f"[DEBUG] 订单总表: 构建完成, 共 {len(orders)} 条数据")
+            self._order_summary_orders = orders  # 存储完整数据用于编辑
             self._populate_order_summary_table(orders)
             self._hide_loading_tip()
             self.order_summary_status.setText(f"共 {len(orders)} 条订单记录")
@@ -4175,17 +4179,22 @@ class MainWindow(QMainWindow):
         
         print(f"[DEBUG] 订单总表: 双击行 {row}, 列 {column}")
         
-        # 获取该行的数据
-        order_data = {}
-        for col in range(self.order_summary_table.columnCount()):
-            item = self.order_summary_table.item(row, col)
-            order_data[col] = item.text() if item else ""
-        
-        # 获取PI的完整数据
-        pi_no = order_data.get(1, '')  # ORDER NO.列
-        if not pi_no:
-            QMessageBox.warning(self, "提示", "请选择有效的订单行")
+        # 检查是否被筛选隐藏
+        if self.order_summary_table.isRowHidden(row):
+            QMessageBox.warning(self, "提示", "该行已被筛选隐藏，请先清除筛选")
             return
+        
+        # 使用存储的完整数据
+        if not hasattr(self, '_order_summary_orders') or row >= len(self._order_summary_orders):
+            QMessageBox.warning(self, "提示", "订单数据未加载完成")
+            return
+        
+        order_data = self._order_summary_orders[row]
+        
+        print(f"[DEBUG] 订单总表: 编辑订单 PI_NO={order_data.get('order_no', 'N/A')}")
+        print(f"[DEBUG] 订单总表: 产品名={order_data.get('product_name', 'N/A')}")
+        print(f"[DEBUG] 订单总表: 客户名={order_data.get('customer_name', 'N/A')}")
+        print(f"[DEBUG] 订单总表: 供应商={order_data.get('supplier_name', 'N/A')}")
         
         # 打开编辑对话框
         dialog = OrderSummaryEditDialog(order_data, self.api_client, self)
