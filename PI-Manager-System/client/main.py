@@ -4108,6 +4108,9 @@ class MainWindow(QMainWindow):
             total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
             self.order_summary_table.setItem(row, 11, total_item)
             
+            # 填充完所有列后设置行高（图片需要更大的行高）
+            self.order_summary_table.setRowHeight(row, 60)
+            
             # 12: 客户最新回复
             self.order_summary_table.setItem(row, 12, QTableWidgetItem(""))
             
