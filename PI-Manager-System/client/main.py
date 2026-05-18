@@ -1,15 +1,52 @@
 # -*- coding: utf-8 -*-
+"""
+PI Manager - 客户端主窗口
+所有导入语句统一放在文件头部
+"""
 import sys
 import os
 import threading
-import pandas as pd
-import asyncio
-from cache_manager import cache_manager, CACHE_KEYS, set_user, invalidate_cache
-import ctypes
-import urllib.request
+import time
 import traceback
 import concurrent.futures
+import urllib.request
+import ctypes
+from datetime import datetime, timedelta
 from functools import lru_cache
+
+# 数据处理
+import pandas as pd
+
+# PySide6 导入
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QLabel, QStackedWidget, QMessageBox, QTableWidget, QTableWidgetItem, QDialog,
+    QFormLayout, QLineEdit, QTextEdit, QComboBox, QHeaderView, QAbstractItemView,
+    QGridLayout, QCheckBox, QGroupBox, QFileDialog, QProgressDialog, QTabWidget,
+    QScrollArea, QDateEdit, QMenu, QFrame, QStatusBar, QSpinBox, QDoubleSpinBox,
+    QSizePolicy, QProgressBar
+)
+from PySide6.QtCore import Qt, QTimer, QDate, QEvent, QThread, Signal, QObject
+from PySide6.QtGui import (
+    QIcon, QPalette, QColor, QFont, QFontDatabase, QBrush, QPixmap, QImage,
+    QAction, QPainter
+)
+
+# 本地模块
+from cache_manager import cache_manager, CACHE_KEYS, set_user, invalidate_cache
+from api.client import ApiClient
+from api.cached_client import CachedApiClient
+from config import Config
+from product_categories import get_category_options, get_category_code, get_category_name
+from widgets.action_bar import ActionBarFactory
+from widgets.order_summary_edit_dialog import OrderSummaryEditDialog
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'config'))
+
+# ============================================
+# 全局常量和配置
+# ============================================
 
 # 全局线程池（复用，避免重复创建）
 _global_thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="pi_manager")
@@ -19,10 +56,7 @@ _image_cache = {}
 _image_cache_lock = threading.Lock()
 _MAX_IMAGE_CACHE_SIZE = 100
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'config'))
-
-# 省份编码映射（静态数据，模块级别只创建一次）
+# 省份编码映射（静态数据）
 PROVINCE_CODE_MAP = {
     "北京": "11", "天津": "12", "河北": "13", "山西": "14", "内蒙古": "15",
     "辽宁": "21", "吉林": "22", "黑龙江": "23",
@@ -3444,6 +3478,68 @@ class MainWindow(QMainWindow):
         """隐藏加载提示"""
         if hasattr(self, '_status_label'):
             self._status_label.setText("")
+    
+    def _update_work_status(self, task_id: str, text: str, progress: int = -1):
+        """更新右下角工作状态"""
+        if not hasattr(self, '_work_status_manager'):
+            self._work_status_manager = {}
+        
+        self._work_status_manager[task_id] = {
+            "text": text,
+            "progress": progress,
+            "timestamp": time.time()
+        }
+        
+        self._refresh_work_status_display()
+    
+    def _remove_work_status(self, task_id: str):
+        """移除工作状态"""
+        if hasattr(self, '_work_status_manager') and task_id in self._work_status_manager:
+            del self._work_status_manager[task_id]
+            self._refresh_work_status_display()
+    
+    def _refresh_work_status_display(self):
+        """刷新工作状态显示"""
+        if not hasattr(self, '_work_status_label'):
+            self._work_status_label = QLabel()
+            self._work_status_label.setStyleSheet("""
+                QLabel {
+                    background-color: #059669;
+                    color: white;
+                    padding: 5px 15px;
+                    font-size: 11px;
+                }
+            """)
+            self.statusBar().insertPermanentWidget(1, self._work_status_label)
+        
+        if not hasattr(self, '_work_status_manager') or not self._work_status_manager:
+            self._work_status_label.setText("  ✓ 就绪 ")
+            return
+        
+        parts = []
+        for item in self._work_status_manager.values():
+            text = item["text"]
+            progress = item["progress"]
+            if progress >= 0:
+                parts.append(f"{text} ({progress}%)")
+            else:
+                parts.append(text)
+        
+        # 限制显示长度
+        display_text = " | ".join(parts[:3])
+        if len(parts) > 3:
+            display_text += f" (+{len(parts)-3} 更多)"
+        
+        self._work_status_label.setText(f"  🔄 {display_text} ")
+        
+        # 清理过期状态（超过5分钟）
+        now = time.time()
+        expired = [k for k, v in self._work_status_manager.items() 
+                   if now - v["timestamp"] > 300]
+        for k in expired:
+            del self._work_status_manager[k]
+        if expired:
+            self._refresh_work_status_display()
 
     def update_user_info(self):
         """更新用户信息显示"""
