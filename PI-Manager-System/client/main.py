@@ -3757,6 +3757,8 @@ class MainWindow(QMainWindow):
             "箱数", "预估体积", "整箱毛重", "总重量", "品牌", "开票情况"
         ])
         self.order_summary_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        # 设置图片列宽度（固定宽度以显示缩略图）
+        self.order_summary_table.setColumnWidth(6, 60)  # 图片列
         self.order_summary_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # 启用双击编辑
         self.order_summary_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
@@ -4075,14 +4077,14 @@ class MainWindow(QMainWindow):
             # 5: 产品名称
             self.order_summary_table.setItem(row, 5, QTableWidgetItem(order['product_name']))
             
-            # 6: 图片
-            if order['image']:
-                from PySide6.QtWidgets import QLabel
-                img_label = QLabel("📷")
-                img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.order_summary_table.setCellWidget(row, 6, img_label)
-            else:
-                self.order_summary_table.setItem(row, 6, QTableWidgetItem(""))
+            # 6: 图片 - 异步加载显示
+            img_label = QLabel("📷")
+            img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            img_label.setFixedSize(56, 56)
+            self.order_summary_table.setCellWidget(row, 6, img_label)
+            if order.get('image'):
+                # 异步加载图片
+                self.load_image_async(img_label, order['image'])
             
             # 7: 客户型号
             self.order_summary_table.setItem(row, 7, QTableWidgetItem(order['customer_model']))
