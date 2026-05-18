@@ -3712,6 +3712,12 @@ class MainWindow(QMainWindow):
             customer_payment_list = self.api_client.get_customer_payments() or []
             supplier_payment_list = self.api_client.get_supplier_payments() or []
             
+            # 获取客户和产品映射（用于快速查找）
+            customers = {c['id']: c for c in self.api_client.get_customers() or []}
+            products = {p['id']: p for p in self.api_client.get_products() or []}
+            
+            print(f"[DEBUG] 订单总表: 加载 {len(customers)} 个客户, {len(products)} 个产品")
+            
             # 更新客户和供应商下拉框
             self._update_order_summary_filters(pi_list)
             
@@ -3719,7 +3725,9 @@ class MainWindow(QMainWindow):
             orders = []
             for i, pi in enumerate(pi_list):
                 print(f"[DEBUG] 订单总表: 构建第 {i+1}/{len(pi_list)} 行数据, PI_NO={pi.get('pi_no', 'N/A')}")
-                order = self._build_order_summary_row(pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list)
+                # 获取PI的详细信息
+                pi_detail = self.api_client.get_pi_detail(pi.get('id'))
+                order = self._build_order_summary_row(pi_detail or pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list, customers, products)
                 orders.append(order)
             
             print(f"[DEBUG] 订单总表: 构建完成, 共 {len(orders)} 行数据")
@@ -3752,8 +3760,13 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"[ERROR] 更新筛选器失败: {e}")
     
-    def _build_order_summary_row(self, pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list):
+    def _build_order_summary_row(self, pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list, customers=None, products=None):
         """构建订单总表单行数据"""
+        if customers is None:
+            customers = {}
+        if products is None:
+            products = {}
+        
         pi_id = pi.get('id', 'N/A')
         pi_no = pi.get('pi_no', 'N/A')
         print(f"[DEBUG] 订单总表: 构建PI_ID={pi_id}, PI_NO={pi_no}")
@@ -3761,20 +3774,27 @@ class MainWindow(QMainWindow):
         # 基础信息
         order_date = pi.get('created_at', '')[:10] if pi.get('created_at') else ''
         order_no = pi.get('pi_no', '')
+        customer_code = pi.get('customer_code', '')
         
-        # 获取关联的产品信息
-        product_id = pi.get('product_id')
-        product = None
-        if product_id:
-            products = self.api_client.get_products() or []
-            product = next((p for p in products if p.get('id') == product_id), None)
-            print(f"[DEBUG] 订单总表: 找到产品ID={product_id}, 产品名={product.get('name', 'N/A') if product else 'None'}")
+        # 从 items 中获取产品信息（PI detail 包含 items）
+        items = pi.get('items', [])
+        first_item = items[0] if items else {}
+        product_id = first_item.get('product_id')
+        quantity = first_item.get('quantity', 0)
+        unit_price = first_item.get('unit_price', 0)
+        oe_number = first_item.get('oe_number', '')
+        remark = first_item.get('remark', '')
         
+        # 使用传入的字典快速查找产品
+        product = products.get(product_id) if product_id else None
+        if product:
+            print(f"[DEBUG] 订单总表: 找到产品ID={product_id}, 产品名={product.get('name', 'N/A')}")
+        
+        # 获取客户信息
         customer_id = pi.get('customer_id')
-        customer = None
-        if customer_id:
-            customers = self.api_client.get_customers() or []
-            customer = next((c for c in customers if c.get('id') == customer_id), None)
+        customer = customers.get(customer_id) if customer_id else None
+        if customer:
+            print(f"[DEBUG] 订单总表: 找到客户ID={customer_id}, 客户={customer.get('name', 'N/A')}")
         
         # 查找采购信息
         purchase = next((p for p in purchase_list if p.get('pi_id') == pi_id), None)
@@ -3783,11 +3803,13 @@ class MainWindow(QMainWindow):
         else:
             print(f"[DEBUG] 订单总表: 未找到采购订单")
         
+        # 查找供应商
         supplier_id = purchase.get('supplier_id') if purchase else None
         supplier = None
         if supplier_id:
             suppliers = self.api_client.get_suppliers() or []
-            supplier = next((s for s in suppliers if s.get('id') == supplier_id), None)
+            supplier_dict = {s['id']: s for s in suppliers}
+            supplier = supplier_dict.get(supplier_id)
         
         # 查找出货信息
         shipment = next((s for s in shipment_list if s.get('pi_id') == pi_id), None)
@@ -3808,14 +3830,15 @@ class MainWindow(QMainWindow):
         return {
             'order_date': order_date,
             'order_no': order_no,
-            'customer_product_code': pi.get('customer_code', ''),
-            'oe_number': product.get('oe_number', '') if product else '',
-            'customer_requirement': pi.get('remark', ''),
+            'customer_product_code': customer_code,
+            'oe_number': oe_number or (product.get('oe_number', '') if product else ''),
+            'customer_requirement': remark,
             'product_name': product.get('name', '') if product else '',
             'image': product.get('image_url', '') if product else '',
-            'customer_model': pi.get('customer_code', ''),
-            'quantity': pi.get('quantity', 0),
-            'unit_price': pi.get('unit_price', 0),
+            'customer_model': customer_code,
+            'customer_name': customer.get('name', '') if customer else '',
+            'quantity': quantity,
+            'unit_price': unit_price,
             'total_amount': pi.get('total_amount', 0),
             'currency': pi.get('currency', 'USD'),
             'customer_prepayment': customer_payment.get('amount', 0) if customer_payment else 0,
