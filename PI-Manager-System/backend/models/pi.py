@@ -18,6 +18,8 @@ class PiProformaInvoice(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     customer = relationship("CrmCustomer")
+    items = relationship("PiProformaInvoiceItem", back_populates="pi", cascade="all, delete-orphan")
+    payment_stages = relationship("PiPaymentStage", back_populates="pi", cascade="all, delete-orphan")
 
 class PiProformaInvoiceItem(Base):
     __tablename__ = "pi_proforma_invoice_item"
@@ -33,7 +35,7 @@ class PiProformaInvoiceItem(Base):
     total_price = Column(DECIMAL(15, 4), nullable=False)
     remark = Column(Text)
     
-    pi = relationship("PiProformaInvoice")
+    pi = relationship("PiProformaInvoice", back_populates="items")
     product = relationship("PrdProduct")
 
 class PiPaymentStage(Base):
@@ -49,7 +51,7 @@ class PiPaymentStage(Base):
     status = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.now)
     
-    pi = relationship("PiProformaInvoice")
+    pi = relationship("PiProformaInvoice", back_populates="payment_stages")
 
 class PiProformaInvoiceVersion(Base):
     __tablename__ = "pi_proforma_invoice_version"

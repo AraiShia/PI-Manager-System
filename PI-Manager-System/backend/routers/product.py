@@ -26,6 +26,118 @@ def read_products(skip: int = 0, limit: int = 100, status: int = None, db: Sessi
 def search_products_api(keyword: str = "", category_id: int = None, status: int = None, db: Session = Depends(get_db)):
     return search_products(db, keyword=keyword, category_id=category_id, status=status)
 
+@router.get("/{product_id}/schemes")
+def get_product_schemes(product_id: int, db: Session = Depends(get_db)):
+    """获取产品的供应商方案列表（从PrdProductSupplier表读取，与产品管理同步）"""
+    from models import PrdProduct, PrdProductSupplier, SupSupplier, CrmCustomer
+    
+    # 从PrdProductSupplier表读取（和产品管理使用同一数据源）
+    result = db.query(
+        PrdProductSupplier,
+        SupSupplier.supplier_code,
+        SupSupplier.supplier_name,
+        CrmCustomer.customer_code,
+        CrmCustomer.customer_name,
+    ).join(
+        SupSupplier, PrdProductSupplier.supplier_id == SupSupplier.id
+    ).outerjoin(
+        CrmCustomer, PrdProductSupplier.customer_id == CrmCustomer.id
+    ).filter(
+        PrdProductSupplier.product_id == product_id
+    ).all()
+    
+    schemes = []
+    for ps, sc, sn, cc, cn in result:
+        schemes.append({
+            "id": ps.id,
+            "product_id": ps.product_id,
+            "supplier_id": ps.supplier_id,
+            "supplier_name": sn or "",
+            "supplier_code": sc or "",
+            "customer_id": ps.customer_id,
+            "customer_name": cn or "通用",
+            "factory_code": ps.factory_code or "",
+            "purchase_price": float(ps.purchase_price) if ps.purchase_price else 0,
+            "currency": ps.currency or "CNY",
+            "units_per_carton": ps.units_per_carton,
+            "carton_length_cm": float(ps.carton_length_cm) if ps.carton_length_cm else 0,
+            "carton_width_cm": float(ps.carton_width_cm) if ps.carton_width_cm else 0,
+            "carton_height_cm": float(ps.carton_height_cm) if ps.carton_height_cm else 0,
+            "gross_weight_kg": float(ps.gross_weight_kg) if ps.gross_weight_kg else 0,
+            "moq": ps.moq,
+            "lead_time_days": ps.lead_time_days,
+            "remark": ps.remark or "",
+            "is_default": ps.is_default or False,
+        })
+    
+    # 如果没有供应商方案，回退到产品表的价格作为默认方案
+    if not schemes:
+        product = db.query(PrdProduct).filter(PrdProduct.id == product_id).first()
+        if product:
+            schemes.append({
+                "id": 0,
+                "product_id": product_id,
+                "supplier_id": product.supplier_id or 0,
+                "supplier_name": "默认（未设置供应商方案）",
+                "supplier_code": "",
+                "customer_id": None,
+                "customer_name": "通用",
+                "factory_code": product.factory_code or "",
+                "purchase_price": float(product.exw_price_incl) if product.exw_price_incl else 0,
+                "currency": "CNY",
+                "units_per_carton": product.units_per_carton,
+                "carton_length_cm": float(product.carton_length_cm) if product.carton_length_cm else 0,
+                "carton_width_cm": float(product.carton_width_cm) if product.carton_width_cm else 0,
+                "carton_height_cm": float(product.carton_height_cm) if product.carton_height_cm else 0,
+                "gross_weight_kg": float(product.gross_weight_kg) if product.gross_weight_kg else 0,
+                "moq": None,
+                "lead_time_days": None,
+                "remark": "从产品基本信息读取",
+                "is_default": True,
+            })
+    
+    return schemes
+
+@router.post("/{product_id}/schemes")
+def create_product_scheme(product_id: int, scheme: dict, db: Session = Depends(get_db)):
+    """为产品创建供应商方案（写入PrdProductSupplier表，与产品管理同步）"""
+    from models import PrdProductSupplier
+    
+    db_scheme = PrdProductSupplier(
+        product_id=product_id,
+        supplier_id=scheme.get('supplier_id'),
+        customer_id=scheme.get('customer_id'),
+        factory_code=scheme.get('factory_code') or '',
+        purchase_price=scheme.get('purchase_price') or scheme.get('exw_price_incl'),
+        currency=scheme.get('currency', 'CNY'),
+        units_per_carton=scheme.get('units_per_carton'),
+        carton_length_cm=scheme.get('carton_length_cm'),
+        carton_width_cm=scheme.get('carton_width_cm'),
+        carton_height_cm=scheme.get('carton_height_cm'),
+        gross_weight_kg=scheme.get('gross_weight_kg'),
+        moq=scheme.get('moq'),
+        lead_time_days=scheme.get('lead_time_days'),
+        remark=scheme.get('remark', ''),
+        is_default=scheme.get('is_default', False),
+    )
+    db.add(db_scheme)
+    db.commit()
+    db.refresh(db_scheme)
+    return {"id": db_scheme.id, "success": True}
+
+@router.delete("/{product_id}/schemes/{scheme_id}")
+def delete_product_scheme(product_id: int, scheme_id: int, db: Session = Depends(get_db)):
+    """删除供应商方案"""
+    from models import PrdProductSupplier
+    db_scheme = db.query(PrdProductSupplier).filter(
+        PrdProductSupplier.id == scheme_id,
+        PrdProductSupplier.product_id == product_id
+    ).first()
+    if db_scheme:
+        db.delete(db_scheme)
+        db.commit()
+    return {"success": True}
+
 @router.get("/{product_id}", response_model=ProductResponse)
 def read_product(product_id: int, db: Session = Depends(get_db)):
     db_product = get_product(db, product_id)

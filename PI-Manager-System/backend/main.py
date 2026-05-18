@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 import os
 import sys
 
@@ -19,6 +20,7 @@ from routers.quote import router as quote_router
 from routers.product_category import router as category_router
 from routers.image import router as image_router
 from routers.auth import router as auth_router
+from routers.product_supplier import router as product_supplier_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -27,6 +29,22 @@ app = FastAPI(
     version="1.0.0",
     limit_max_request_size=500 * 1024 * 1024  # 500MB
 )
+
+# 全局验证错误处理器
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"\n[DEBUG] ===== Validation Error =====")
+    print(f"[DEBUG] URL: {request.url}")
+    print(f"[DEBUG] Method: {request.method}")
+    print(f"[DEBUG] Error details:")
+    for error in exc.errors():
+        print(f"  - {error}")
+    print(f"[DEBUG] Request body: {exc.body}")
+    print(f"[DEBUG] =============================\n")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": str(exc.body)},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +58,7 @@ app.include_router(product_router)
 app.include_router(customer_router)
 app.include_router(supplier_router)
 app.include_router(pi_router)
+app.include_router(product_supplier_router)
 app.include_router(purchase_router)
 app.include_router(shipment_router)
 app.include_router(inventory_router)

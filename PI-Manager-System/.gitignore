@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec
+
+# Database
+*.db
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.venv/
+venv/
+
+# Node (frontend - unused)
+node_modules/
+frontend/
+
+# Logs
+*.log
+output.log
+
+# Uploads (keep structure, ignore files)
+uploads/*.jpg
+uploads/*.png
+uploads/*.jpeg
+
+# Build artifacts
+PI-Manager-System/backend/dist/
+PI-Manager-System/backend/build/
+PI-Manager-System/client/build/
+PI-Manager-System/dist/
+
+# Trae
+.openclaw/
+*.trae-cn/
+
+# Temp scripts
+*_test.py
+test_*.py
+fix_db.py
+fix_db_real.py
+check_db.py
+run_gen.py
+generate_test_data.py

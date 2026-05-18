@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from crud.purchase import (
-    create_purchase_order, get_purchase_order, get_purchase_orders, 
+    create_purchase_order, get_purchase_order, get_purchase_orders,
     update_purchase_status, create_1688_purchase, get_1688_purchases,
-    update_purchase_order
+    update_purchase_order, get_purchase_orders_by_supplier
 )
 from schemas.purchase import PurchaseOrderCreate, PurchaseOrderResponse, PurchaseOrderUpdate
 
@@ -59,3 +59,7 @@ def create_1688_purchase_api(purchase_data, db: Session = Depends(get_db)):
 @router.get("/1688")
 def read_1688_purchases(pi_id: int = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return get_1688_purchases(db, pi_id=pi_id, skip=skip, limit=limit)
+
+@router.get("/by-supplier/{supplier_id}", response_model=list[PurchaseOrderResponse])
+def read_purchases_by_supplier(supplier_id: int, db: Session = Depends(get_db)):
+    return get_purchase_orders_by_supplier(db, supplier_id)

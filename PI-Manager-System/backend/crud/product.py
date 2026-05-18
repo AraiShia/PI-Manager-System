@@ -1,12 +1,12 @@
 from sqlalchemy.orm import Session
-from models import PrdProduct, PrdProductImage, PiProformaInvoiceItem
-from schemas import ProductCreate, ProductUpdate
+from models import PrdProduct, PrdProductImage, PiProformaInvoiceItem, PrdProductSupplier
+from schemas import ProductCreate, ProductUpdate, SupplierSchemeCreate
 from utils.number_generator import NumberGenerator
 from utils.volume_calculator import VolumeCalculator
 
 def create_product(db: Session, product: ProductCreate) -> PrdProduct:
     product_code = NumberGenerator.generate_product_code(db, product.dept_id, product.category_id or 1)
-    
+
     carton_volume_m3 = None
     if product.carton_length_cm and product.carton_width_cm and product.carton_height_cm:
         carton_volume_m3 = VolumeCalculator.calculate_carton_volume(
@@ -14,17 +14,37 @@ def create_product(db: Session, product: ProductCreate) -> PrdProduct:
             product.carton_width_cm,
             product.carton_height_cm
         )
-    
+
+    product_data = product.dict(exclude={"supplier_schemes"})
     db_product = PrdProduct(
         product_code=product_code,
-        **product.dict()
+        **product_data
     )
     db_product.carton_volume_m3 = carton_volume_m3
-    
+
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
-    
+
+    if product.supplier_schemes:
+        for scheme in product.supplier_schemes:
+            db_scheme = PrdProductSupplier(
+                product_id=db_product.id,
+                supplier_id=scheme.supplier_id,
+                customer_id=scheme.customer_id if scheme.customer_id else None,
+                factory_code=scheme.factory_code or str(db_product.oe_number),
+                units_per_carton=scheme.units_per_carton,
+                carton_length_cm=scheme.carton_length_cm,
+                carton_width_cm=scheme.carton_width_cm,
+                carton_height_cm=scheme.carton_height_cm,
+                gross_weight_kg=scheme.gross_weight_kg,
+                is_default=scheme.is_default,
+                remark=scheme.remark
+            )
+            db.add(db_scheme)
+        db.commit()
+        db.refresh(db_product)
+
     return db_product
 
 def get_product(db: Session, product_id: int) -> PrdProduct:
@@ -64,22 +84,40 @@ def update_product(db: Session, product_id: int, product_update: ProductUpdate) 
     db_product = get_product(db, product_id)
     if not db_product:
         return None
-    
-    update_data = product_update.dict(exclude_unset=True)
-    
+
+    update_data = product_update.dict(exclude_unset=True, exclude={"supplier_schemes"})
+
     if 'carton_length_cm' in update_data or 'carton_width_cm' in update_data or 'carton_height_cm' in update_data:
         length = update_data.get('carton_length_cm', db_product.carton_length_cm)
         width = update_data.get('carton_width_cm', db_product.carton_width_cm)
         height = update_data.get('carton_height_cm', db_product.carton_height_cm)
         if length and width and height:
             update_data['carton_volume_m3'] = VolumeCalculator.calculate_carton_volume(length, width, height)
-    
+
     for key, value in update_data.items():
         setattr(db_product, key, value)
-    
+
+    if product_update.supplier_schemes is not None:
+        db.query(PrdProductSupplier).filter(PrdProductSupplier.product_id == product_id).delete()
+        for scheme in product_update.supplier_schemes:
+            db_scheme = PrdProductSupplier(
+                product_id=product_id,
+                supplier_id=scheme.supplier_id,
+                customer_id=scheme.customer_id if scheme.customer_id else None,
+                factory_code=scheme.factory_code or str(db_product.oe_number),
+                units_per_carton=scheme.units_per_carton,
+                carton_length_cm=scheme.carton_length_cm,
+                carton_width_cm=scheme.carton_width_cm,
+                carton_height_cm=scheme.carton_height_cm,
+                gross_weight_kg=scheme.gross_weight_kg,
+                is_default=scheme.is_default if hasattr(scheme, 'is_default') else False,
+                remark=scheme.remark
+            )
+            db.add(db_scheme)
+
     db.commit()
     db.refresh(db_product)
-    
+
     return db_product
 
 def toggle_product_status(db: Session, product_id: int) -> PrdProduct:

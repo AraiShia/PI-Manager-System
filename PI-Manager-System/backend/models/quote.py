@@ -14,6 +14,7 @@ class QoQuote(Base):
     currency = Column(String(10), default="USD")
     valid_until = Column(DateTime)
     status = Column(Integer, default=1)
+    remark = Column(Text)
     converted_pi_id = Column(Integer)
     created_by = Column(Integer)
     created_at = Column(DateTime, default=datetime.now)
@@ -28,6 +29,9 @@ class QoQuoteItem(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     quote_id = Column(Integer, ForeignKey("qo_quote.id"), nullable=False)
     product_id = Column(Integer, ForeignKey("prd_product.id"))
+    oe_number = Column(String(100))  # OE号
+    customer_code = Column(String(100))  # 客户编号
+    detail_desc = Column(String(500))  # 产品描述
     quantity = Column(DECIMAL(15, 4), nullable=False)
     unit_price = Column(DECIMAL(15, 4), nullable=False)
     total_price = Column(DECIMAL(15, 4), nullable=False)

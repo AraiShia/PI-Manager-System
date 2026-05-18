@@ -48,7 +48,7 @@ async def get_current_user_optional(
         if not user or not user.is_active:
             return None
         return user
-    except:
+    except Exception:
         return None
 
 # 获取当前管理员

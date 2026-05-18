@@ -120,3 +120,90 @@ class NumberGenerator:
                 db.add(history)
                 db.commit()
                 return code
+
+    @staticmethod
+    def generate_receipt_no(db: Session, dept_id: str) -> str:
+        from models import ArCustomerPayment
+        prefix = f"RC{dept_id}{datetime.now().strftime('%y%m%d')}"
+        count = db.query(ArCustomerPayment).filter(
+            ArCustomerPayment.receipt_no.like(f"{prefix}%")
+        ).count()
+        receipt_no = f"{prefix}{str(count + 1).zfill(3)}"
+        
+        history = SysNumberHistory(
+            rule_type="RECEIPT",
+            generated_no=receipt_no,
+            related_type="RECEIPT"
+        )
+        db.add(history)
+        db.commit()
+        return receipt_no
+
+    @staticmethod
+    def generate_payment_no(db: Session, dept_id: str) -> str:
+        from models import ApSupplierPayment
+        prefix = f"PM{dept_id}{datetime.now().strftime('%y%m%d')}"
+        count = db.query(ApSupplierPayment).filter(
+            ApSupplierPayment.payment_no.like(f"{prefix}%")
+        ).count()
+        payment_no = f"{prefix}{str(count + 1).zfill(3)}"
+        
+        history = SysNumberHistory(
+            rule_type="PAYMENT",
+            generated_no=payment_no,
+            related_type="PAYMENT"
+        )
+        db.add(history)
+        db.commit()
+        return payment_no
+
+    @staticmethod
+    def generate_ci_no(db: Session, pi_no: str) -> str:
+        """生成CI号: C+PI号"""
+        ci_no = f"C{pi_no}"
+        
+        history = SysNumberHistory(
+            rule_type="CI",
+            generated_no=ci_no,
+            related_type="CI"
+        )
+        db.add(history)
+        db.commit()
+        return ci_no
+
+    @staticmethod
+    def generate_pl_no(db: Session, pi_no: str) -> str:
+        """生成PL号: P+PI号"""
+        pl_no = f"P{pi_no}"
+        
+        history = SysNumberHistory(
+            rule_type="PL",
+            generated_no=pl_no,
+            related_type="PL"
+        )
+        db.add(history)
+        db.commit()
+        return pl_no
+
+    @staticmethod
+    def generate_quote_no(db: Session, dept_id: str, customer_code: str) -> str:
+        """生成报价单号: Q+部门+客户+年月日-序号"""
+        date_str = datetime.now().strftime("%y%m%d")
+        
+        from models import QoQuote
+        today_count = db.query(QoQuote).filter(
+            QoQuote.dept_id == dept_id,
+            QoQuote.quote_no.like(f"Q%{dept_id}{customer_code}{date_str}%")
+        ).count()
+        sequence = today_count + 1
+        
+        quote_no = f"Q{dept_id}{customer_code}{date_str}-{sequence}"
+        
+        history = SysNumberHistory(
+            rule_type="QUOTE",
+            generated_no=quote_no,
+            related_type="QUOTE"
+        )
+        db.add(history)
+        db.commit()
+        return quote_no

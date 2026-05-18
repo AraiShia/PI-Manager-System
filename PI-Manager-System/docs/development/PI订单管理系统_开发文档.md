@@ -466,6 +466,8 @@ async confirmShipment(shipmentId: number) {
   await this.shipmentRepository.save(shipment);
 }
 ```
+网站内容同步，规划性，
+和社媒同步，养号
 
 ---
 

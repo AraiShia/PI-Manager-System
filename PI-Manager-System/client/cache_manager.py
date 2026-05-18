@@ -1,187 +1,211 @@
+"""
+客户端缓存管理器 - 加速数据加载
+"""
 import json
 import os
 import time
-from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional, List
 
 class CacheManager:
-    def __init__(self, cache_dir: str = "cache"):
+    """本地文件缓存管理器"""
+    
+    def __init__(self, cache_dir: str = None):
+        if cache_dir is None:
+            # 使用用户目录下的缓存文件夹
+            cache_dir = os.path.join(os.path.expanduser('~'), '.pi_manager_cache')
         self.cache_dir = cache_dir
-        self.cache_data: Dict[str, Any] = {}
-        self.cache_metadata: Dict[str, Dict[str, float]] = {}
-        self.indexes: Dict[str, Dict[str, int]] = {}
-        self.user_id: Optional[str] = None  # 当前用户ID，用于缓存隔离
-        
         os.makedirs(cache_dir, exist_ok=True)
-        self.load_cache()
-    
-    def set_user(self, user_id: str):
-        """设置当前用户ID"""
-        self.user_id = user_id
-    
-    def _get_cache_key(self, key: str) -> str:
-        """生成带用户ID的缓存键"""
-        if self.user_id:
-            return f"user_{self.user_id}_{key}"
-        return key
-    
-    def load_cache(self):
-        """加载缓存文件"""
-        try:
-            # 加载数据缓存
-            data_file = os.path.join(self.cache_dir, "data.json")
-            if os.path.exists(data_file):
-                with open(data_file, "r", encoding="utf-8") as f:
-                    self.cache_data = json.load(f)
-                    print(f"加载缓存数据: {len(self.cache_data)} 个条目")
-            
-            # 加载元数据
-            meta_file = os.path.join(self.cache_dir, "metadata.json")
-            if os.path.exists(meta_file):
-                with open(meta_file, "r", encoding="utf-8") as f:
-                    self.cache_metadata = json.load(f)
-                    print(f"加载缓存元数据: {len(self.cache_metadata)} 个条目")
-            
-            # 加载索引
-            index_file = os.path.join(self.cache_dir, "indexes.json")
-            if os.path.exists(index_file):
-                with open(index_file, "r", encoding="utf-8") as f:
-                    self.indexes = json.load(f)
-                    print(f"加载缓存索引: {len(self.indexes)} 个条目")
-        except json.JSONDecodeError as e:
-            print(f"缓存文件格式错误，将重新创建: {e}")
-            self.cache_data = {}
-            self.cache_metadata = {}
-            self.indexes = {}
-        except Exception as e:
-            print(f"加载缓存失败: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def save_cache(self):
-        """保存缓存到文件"""
-        try:
-            # 保存数据缓存
-            data_file = os.path.join(self.cache_dir, "data.json")
-            with open(data_file, "w", encoding="utf-8") as f:
-                json.dump(self.cache_data, f, ensure_ascii=False, indent=2)
-            
-            # 保存元数据
-            meta_file = os.path.join(self.cache_dir, "metadata.json")
-            with open(meta_file, "w", encoding="utf-8") as f:
-                json.dump(self.cache_metadata, f, ensure_ascii=False, indent=2)
-            
-            # 保存索引
-            index_file = os.path.join(self.cache_dir, "indexes.json")
-            with open(index_file, "w", encoding="utf-8") as f:
-                json.dump(self.indexes, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"保存缓存失败: {e}")
-    
-    def get_cache(self, key: str) -> Optional[Any]:
-        """获取缓存数据"""
-        cache_key = self._get_cache_key(key)
-        return self.cache_data.get(cache_key)
-    
-    def set_cache(self, key: str, data: Any, ttl: int = 3600):
-        """设置缓存数据"""
-        cache_key = self._get_cache_key(key)
-        self.cache_data[cache_key] = data
-        self.cache_metadata[cache_key] = {
-            "timestamp": time.time(),
-            "ttl": ttl
-        }
-        self.build_index(cache_key, data)
-    
-    def is_cache_valid(self, key: str) -> bool:
-        """检查缓存是否有效"""
-        cache_key = self._get_cache_key(key)
-        meta = self.cache_metadata.get(cache_key)
-        if not meta:
-            return False
-        return time.time() < meta["timestamp"] + meta["ttl"]
-    
-    def invalidate_cache(self, key: str):
-        """使缓存失效"""
-        cache_key = self._get_cache_key(key)
-        if cache_key in self.cache_data:
-            del self.cache_data[cache_key]
-        if cache_key in self.cache_metadata:
-            del self.cache_metadata[cache_key]
-        if cache_key in self.indexes:
-            del self.indexes[cache_key]
-    
-    def build_index(self, key: str, data: Any):
-        """为数据建立索引"""
-        if isinstance(data, list):
-            index = {}
-            for i, item in enumerate(data):
-                if isinstance(item, dict):
-                    # 为常用字段建立索引
-                    if "id" in item:
-                        index[str(item["id"])] = i
-                    if "name" in item:
-                        index[item["name"]] = i
-                    if "code" in item:
-                        index[item["code"]] = i
-            self.indexes[key] = index
-    
-    def find_by_index(self, key: str, field_value: str) -> Optional[Any]:
-        """通过索引查找数据"""
-        cache_key = self._get_cache_key(key)
-        if cache_key not in self.indexes or cache_key not in self.cache_data:
-            return None
         
-        index = self.indexes[cache_key]
-        if field_value in index:
-            idx = index[field_value]
-            return self.cache_data[cache_key][idx]
+        # 内存缓存
+        self._memory_cache: Dict[str, Any] = {}
+        self._cache_time: Dict[str, float] = {}
+        
+    def _get_file_path(self, key: str) -> str:
+        """获取缓存文件路径"""
+        # 将key中的特殊字符替换为安全字符
+        safe_key = key.replace('/', '_').replace('\\', '_').replace(':', '_')
+        return os.path.join(self.cache_dir, f"{safe_key}.json")
+    
+    def get(self, key: str, max_age: int = 300) -> Optional[Any]:
+        """
+        获取缓存数据
+        
+        Args:
+            key: 缓存键
+            max_age: 最大缓存时间（秒），默认5分钟
+        
+        Returns:
+            缓存数据或None
+        """
+        # 先检查内存缓存
+        if key in self._memory_cache:
+            if time.time() - self._cache_time.get(key, 0) < max_age:
+                return self._memory_cache[key]
+            else:
+                # 内存缓存过期
+                del self._memory_cache[key]
+                del self._cache_time[key]
+        
+        # 检查文件缓存
+        file_path = self._get_file_path(key)
+        if os.path.exists(file_path):
+            try:
+                # 检查文件修改时间
+                mtime = os.path.getmtime(file_path)
+                if time.time() - mtime < max_age:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        # 加载到内存缓存
+                        self._memory_cache[key] = data
+                        self._cache_time[key] = mtime
+                        return data
+                else:
+                    # 文件缓存过期，删除
+                    os.remove(file_path)
+            except Exception as e:
+                print(f"读取缓存失败 {key}: {e}")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+        
         return None
     
-    def search_by_keyword(self, key: str, keyword: str) -> List[Any]:
-        """在缓存中搜索关键词"""
-        cache_key = self._get_cache_key(key)
-        if cache_key not in self.cache_data:
-            return []
+    def set(self, key: str, data: Any):
+        """
+        设置缓存数据
         
-        data = self.cache_data[cache_key]
-        results = []
+        Args:
+            key: 缓存键
+            data: 缓存数据
+        """
+        # 保存到内存
+        self._memory_cache[key] = data
+        self._cache_time[key] = time.time()
         
-        for item in data:
-            if isinstance(item, dict):
-                for value in item.values():
-                    if isinstance(value, str) and keyword.lower() in value.lower():
-                        results.append(item)
-                        break
-        return results
+        # 保存到文件
+        file_path = self._get_file_path(key)
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, default=str)
+        except Exception as e:
+            print(f"写入缓存失败 {key}: {e}")
     
-    def clear_all_cache(self):
+    def delete(self, key: str):
+        """删除缓存"""
+        # 删除内存缓存
+        if key in self._memory_cache:
+            del self._memory_cache[key]
+            del self._cache_time[key]
+        
+        # 删除文件缓存
+        file_path = self._get_file_path(key)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+    
+    def clear(self):
         """清空所有缓存"""
-        self.cache_data = {}
-        self.cache_metadata = {}
-        self.indexes = {}
-        self.save_cache()
+        # 清空内存
+        self._memory_cache.clear()
+        self._cache_time.clear()
+        
+        # 清空文件
+        for filename in os.listdir(self.cache_dir):
+            if filename.endswith('.json'):
+                try:
+                    os.remove(os.path.join(self.cache_dir, filename))
+                except OSError:
+                    pass
     
-    def get_cache_status(self) -> Dict[str, Any]:
-        """获取缓存状态信息"""
-        status = {
-            "cache_count": len(self.cache_data),
-            "index_count": len(self.indexes),
-            "total_size": 0,
-            "entries": []
-        }
+    def clear_expired(self, max_age: int = 300):
+        """清理过期缓存"""
+        now = time.time()
         
-        for key, data in self.cache_data.items():
-            size = len(json.dumps(data, ensure_ascii=False))
-            status["total_size"] += size
-            status["entries"].append({
-                "key": key,
-                "count": len(data) if isinstance(data, list) else 1,
-                "size": size,
-                "valid": self.is_cache_valid(key)
-            })
+        # 清理内存
+        expired_keys = [k for k, t in self._cache_time.items() if now - t > max_age]
+        for key in expired_keys:
+            del self._memory_cache[key]
+            del self._cache_time[key]
         
-        return status
+        # 清理文件
+        for filename in os.listdir(self.cache_dir):
+            if filename.endswith('.json'):
+                file_path = os.path.join(self.cache_dir, filename)
+                try:
+                    if now - os.path.getmtime(file_path) > max_age:
+                        os.remove(file_path)
+                except OSError:
+                    pass
 
-# 创建全局缓存实例
+
+# 全局缓存实例
 cache_manager = CacheManager()
+
+# 缓存键常量
+CACHE_KEYS = {
+    'PRODUCTS': 'products',
+    'CUSTOMERS': 'customers',
+    'SUPPLIERS': 'suppliers',
+    'INVENTORY_SUMMARY': 'inventory_summary',
+    'CATEGORIES': 'categories',
+    'PI_LIST': 'pi_list'
+}
+
+
+# 为了兼容 cached_client.py，添加别名方法
+def set_user(user_id: str):
+    """设置当前用户（用于隔离不同用户的缓存）"""
+    # 当前实现不需要用户隔离，留空兼容
+    pass
+
+def is_cache_valid(key: str, max_age: int = 3600) -> bool:
+    """检查缓存是否有效"""
+    return cache_manager.get(key, max_age) is not None
+
+def set_cache(key: str, data: Any, ttl: int = 3600):
+    """设置缓存（兼容接口）"""
+    cache_manager.set(key, data)
+
+def get_cache(key: str) -> Optional[Any]:
+    """获取缓存（兼容接口）"""
+    return cache_manager.get(key)
+
+def invalidate_cache(key: str):
+    """使缓存失效（兼容接口）"""
+    cache_manager.delete(key)
+
+def clear_all_cache():
+    """清空所有缓存（兼容接口）"""
+    cache_manager.clear()
+
+def get_cache_status() -> Dict[str, Any]:
+    """获取缓存状态"""
+    return {
+        'memory_size': len(cache_manager._memory_cache),
+        'cache_dir': cache_manager.cache_dir
+    }
+
+def find_by_index(key: str, item_id: str) -> Optional[Any]:
+    """通过ID查找缓存项"""
+    data = cache_manager.get(key)
+    if data and isinstance(data, list):
+        for item in data:
+            if str(item.get('id')) == item_id:
+                return item
+    return None
+
+def search_by_keyword(key: str, keyword: str) -> Optional[List[Any]]:
+    """按关键词搜索缓存"""
+    data = cache_manager.get(key)
+    if data and isinstance(data, list):
+        results = []
+        keyword_lower = keyword.lower()
+        for item in data:
+            # 搜索常见字段
+            for field in ['product_code', 'oe_number', 'customer_code', 'customer_name', 'supplier_code', 'supplier_name']:
+                if keyword_lower in str(item.get(field, '')).lower():
+                    results.append(item)
+                    break
+        return results if results else None
+    return None
