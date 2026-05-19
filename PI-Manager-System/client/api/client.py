@@ -666,3 +666,13 @@ class ApiClient:
     def delete_product_customer(self, pc_id: int) -> Dict:
         """删除产品-客户关联"""
         return self.delete(f"/product-customers/{pc_id}")
+
+    # ========== 系统设置 ==========
+
+    def get_profit_margin(self) -> Dict:
+        """获取毛利率设置"""
+        return self.get("/settings/profit-margin/get")
+
+    def set_profit_margin(self, profit_margin: float) -> Dict:
+        """设置毛利率"""
+        return self.post(f"/settings/profit-margin/set?profit_margin={profit_margin}", {})

@@ -24,6 +24,7 @@ from routers.product_supplier import router as product_supplier_router
 from routers.customer_reply import router as customer_reply_router
 from routers.product_oe import router as product_oe_router
 from routers.product_customer import router as product_customer_router
+from routers.setting import router as setting_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -73,6 +74,7 @@ app.include_router(auth_router)
 app.include_router(customer_reply_router)
 app.include_router(product_oe_router)
 app.include_router(product_customer_router)
+app.include_router(setting_router)
 
 static_dir = os.path.join(base_dir, "static")
 if os.path.exists(static_dir):

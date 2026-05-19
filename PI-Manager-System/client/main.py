@@ -2531,6 +2531,27 @@ class MainWindow(QMainWindow):
         self.tab_buttons["products"].setChecked(True)
 
         sidebar_layout.addStretch()
+        
+        # 设置按钮
+        settings_btn = QPushButton("⚙ 设置")
+        settings_btn.setFixedHeight(40)
+        settings_btn.setFont(get_font(10))
+        settings_btn.setStyleSheet("""
+            QPushButton {
+                color: #94a3b8;
+                background-color: transparent;
+                border: none;
+                text-align: left;
+                padding-left: 20px;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+                color: white;
+            }
+        """)
+        settings_btn.clicked.connect(self.open_settings)
+        sidebar_layout.addWidget(settings_btn)
+
         sidebar.setLayout(sidebar_layout)
         content_layout.addWidget(sidebar)
 
@@ -3949,7 +3970,12 @@ class MainWindow(QMainWindow):
             if hasattr(self.api_client, 'logout'):
                 self.api_client.logout()
             self.close()
-
+    
+    def open_settings(self):
+        """打开设置对话框"""
+        dialog = SettingsDialog(self.api_client, self)
+        dialog.exec()
+    
     def create_order_summary_tab(self):
         """创建订单总表Tab - 汇总所有模块数据"""
         widget = QWidget()
@@ -9773,3 +9799,89 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+class SettingsDialog(QDialog):
+    """系统设置对话框"""
+    def __init__(self, api_client, parent=None):
+        super().__init__(parent)
+        self.api_client = api_client
+        self.setWindowTitle("系统设置")
+        self.setMinimumWidth(450)
+        self.init_ui()
+        self.load_settings()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # 毛利率设置
+        group = QGroupBox("毛利率设置")
+        group_layout = QVBoxLayout()
+        
+        # 说明
+        info_label = QLabel("毛利率用于自动计算产品报价基准价。\n公式: 基准价 = 采购成本 × (1 + 毛利率)")
+        info_label.setStyleSheet("color: #64748b; font-size: 12px;")
+        group_layout.addWidget(info_label)
+        
+        # 输入框
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(QLabel("基础毛利率:"))
+        
+        self.profit_margin_spin = QDoubleSpinBox()
+        self.profit_margin_spin.setRange(0, 100)
+        self.profit_margin_spin.setDecimals(2)
+        self.profit_margin_spin.setSuffix(" %")
+        self.profit_margin_spin.setFixedWidth(120)
+        input_layout.addWidget(self.profit_margin_spin)
+        
+        input_layout.addStretch()
+        group_layout.addLayout(input_layout)
+        
+        group.setLayout(group_layout)
+        layout.addWidget(group)
+        
+        # 按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setFixedWidth(80)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("保存")
+        save_btn.setFixedWidth(80)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        """)
+        save_btn.clicked.connect(self.save_settings)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+    
+    def load_settings(self):
+        """加载设置"""
+        try:
+            result = self.api_client.get_profit_margin()
+            margin = result.get('profit_margin', 25.0)
+            self.profit_margin_spin.setValue(margin)
+        except Exception as e:
+            print(f"加载毛利率失败: {e}")
+            self.profit_margin_spin.setValue(25.0)  # 默认25%
+    
+    def save_settings(self):
+        """保存设置"""
+        try:
+            margin = self.profit_margin_spin.value()
+            self.api_client.set_profit_margin(margin)
+            QMessageBox.information(self, "成功", f"毛利率已设置为 {margin}%")
+            self.accept()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"保存失败: {e}")

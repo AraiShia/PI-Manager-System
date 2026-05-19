@@ -13,6 +13,7 @@ from .quote import QoQuote, QoQuoteItem
 from .system import SysNumberRule, SysNumberHistory, SysOperationLog
 from .public import PubCategory, PubRegion, PubCurrency
 from .user import SysUser
+from .setting import SysSetting
 
 __all__ = [
     'SysDepartment',
@@ -30,5 +31,6 @@ __all__ = [
     'QoQuote', 'QoQuoteItem',
     'SysNumberRule', 'SysNumberHistory', 'SysOperationLog',
     'PubCategory', 'PubRegion', 'PubCurrency',
-    'SysUser'
+    'SysUser',
+    'SysSetting'
 ]
