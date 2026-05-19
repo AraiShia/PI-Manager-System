@@ -4576,25 +4576,24 @@ class MainWindow(QMainWindow):
         order_row = self.order_detail_table.rowCount()
         self.order_detail_table.insertRow(order_row)
         
-        # 合并单元格显示订单基本信息
-        order_info = f"📋 订单: {order.get('order_no', '')} | 客户: {order.get('customer_name', '')} | 共 {len(items)} 个产品"
-        order_info_item = QTableWidgetItem(order_info)
-        order_info_item.setBackground(QBrush(QColor("#dbeafe")))  # 浅蓝色背景
+        # 订单头信息 - 第一列放固定内容，后面的列显示汇总信息
+        self.order_detail_table.setItem(order_row, 0, QTableWidgetItem("📋"))  # 固定标记
+        order_info_item = QTableWidgetItem(f"订单: {order.get('order_no', '')}")
+        order_info_item.setBackground(QBrush(QColor("#dbeafe")))
         order_info_item.setFont(QFont("", 10, QFont.Weight.Bold))
-        self.order_detail_table.setItem(order_row, 0, order_info_item)
+        self.order_detail_table.setItem(order_row, 1, order_info_item)
         
-        # 合并1-5列作为订单信息
-        self.order_detail_table.setItem(order_row, 1, QTableWidgetItem(order.get('order_date', '')))
-        self.order_detail_table.setItem(order_row, 2, QTableWidgetItem(order.get('customer_name', '')))
-        self.order_detail_table.setItem(order_row, 3, QTableWidgetItem(f"{len(items)} 个产品"))
-        self.order_detail_table.setItem(order_row, 4, QTableWidgetItem(order.get('status', '进行中')))
+        # 客户和状态
+        self.order_detail_table.setItem(order_row, 2, QTableWidgetItem(f"客户: {order.get('customer_name', '')}"))
+        self.order_detail_table.setItem(order_row, 3, QTableWidgetItem(f"产品数: {len(items)}"))
+        self.order_detail_table.setItem(order_row, 4, QTableWidgetItem(f"状态: {order.get('status', '进行中')}"))
         
         # 订单级别汇总金额
         total_amount = order.get('total_amount', 0) or 0
         currency = order.get('currency', 'USD')
-        self.order_detail_table.setItem(order_row, 5, QTableWidgetItem(f"{total_amount} {currency}"))
-        self.order_detail_table.setItem(order_row, 6, QTableWidgetItem(str(order.get('customer_prepayment', 0))))
-        self.order_detail_table.setItem(order_row, 7, QTableWidgetItem(str(order.get('remaining_payment', 0))))
+        self.order_detail_table.setItem(order_row, 5, QTableWidgetItem(f"总金额: {total_amount} {currency}"))
+        self.order_detail_table.setItem(order_row, 6, QTableWidgetItem(f"预付款: {order.get('customer_prepayment', 0)}"))
+        self.order_detail_table.setItem(order_row, 7, QTableWidgetItem(f"尾款: {order.get('remaining_payment', 0)}"))
         
         # 为每个产品显示一行
         for idx, item in enumerate(items):
