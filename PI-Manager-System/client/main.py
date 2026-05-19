@@ -4951,10 +4951,12 @@ class MainWindow(QMainWindow):
             
             if products is None:
                 products = []
+            print(f"[DEBUG] 产品列表: 共加载 {len(products)} 个产品")
             self.products_table.setRowCount(len(products))
             
             for row, p in enumerate(products):
                 product_id = p.get('id')
+                print(f"[DEBUG] 产品列表: 处理第{row}行, ID={product_id}, 产品名={p.get('detail_desc', 'N/A')}")
                 
                 # 0: 复选框
                 checkbox = QCheckBox()
@@ -4968,8 +4970,9 @@ class MainWindow(QMainWindow):
                 try:
                     oe_list = self.api_client.get_product_oes(product_id) or []
                     customer_product_list = self.api_client.get_product_customers(product_id) or []
-                except:
-                    pass
+                    print(f"[DEBUG] 产品列表: 行{row} - OE数量={len(oe_list)}, 客户产品数量={len(customer_product_list)}")
+                except Exception as e:
+                    print(f"[DEBUG] 产品列表: 行{row} - 获取OE/客户产品失败: {e}")
                 
                 # 1: 客户产品编号（从产品-客户关联获取，显示第一个客户的编号）
                 customer_product_code = ""
@@ -4978,11 +4981,13 @@ class MainWindow(QMainWindow):
                     first_pc = customer_product_list[0]
                     full_code = first_pc.get('customer_product_code', '')
                     customer_code = first_pc.get('customer_code', '')
+                    print(f"[DEBUG] 产品列表: 行{row} - full_code={full_code}, customer_code={customer_code}")
                     if full_code and customer_code:
                         # 去掉客户号前缀
                         customer_product_code = full_code.replace(customer_code, "", 1).lstrip("-")
                     else:
                         customer_product_code = full_code or ""
+                    print(f"[DEBUG] 产品列表: 行{row} - 显示的客户产品编号={customer_product_code}")
                 self.products_table.setItem(row, 1, QTableWidgetItem(customer_product_code))
                 
                 # 2: OE号（显示主OE或"多OE号"按钮）
