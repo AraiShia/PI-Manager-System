@@ -4728,12 +4728,14 @@ class MainWindow(QMainWindow):
         
         self.order_list_table.setSortingEnabled(True)
     
-    def _build_order_summary_row(self, pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list, customers=None, products=None):
+    def _build_order_summary_row(self, pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list, customers=None, products=None, suppliers=None):
         """构建订单总表单行数据"""
         if customers is None:
             customers = {}
         if products is None:
             products = {}
+        if suppliers is None:
+            suppliers = {}
         
         pi_id = pi.get('id', 'N/A')
         pi_no = pi.get('pi_no', 'N/A')
