@@ -4508,48 +4508,48 @@ class MainWindow(QMainWindow):
             "箱数", "预估体积", "整箱毛重", "总重量", "品牌", "开票情况"
         ])
         self.order_detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        # 设置关键列宽度（大幅加宽）
-        self.order_detail_table.setColumnWidth(0, 80)    # 序号/标记列
-        self.order_detail_table.setColumnWidth(1, 200)   # ORDER NO.
-        self.order_detail_table.setColumnWidth(2, 200)   # 客户产品编号/客户
-        self.order_detail_table.setColumnWidth(3, 180)   # OE号/总金额
-        self.order_detail_table.setColumnWidth(4, 250)   # 备注/状态
-        self.order_detail_table.setColumnWidth(5, 250)   # 产品名称/预付款
-        self.order_detail_table.setColumnWidth(6, 100)  # 图片列
-        self.order_detail_table.setColumnWidth(7, 180)   # 客户型号
-        self.order_detail_table.setColumnWidth(8, 180)   # OE号.1
-        self.order_detail_table.setColumnWidth(9, 100)  # 数量列
-        self.order_detail_table.setColumnWidth(10, 120) # 报价列
-        self.order_detail_table.setColumnWidth(11, 150) # 合计金额
-        self.order_detail_table.setColumnWidth(12, 300) # 客户最新回复
-        self.order_detail_table.setColumnWidth(13, 150) # 客户预付款
-        self.order_detail_table.setColumnWidth(14, 150) # 待收尾款
-        self.order_detail_table.setColumnWidth(15, 150) # 预估美金报价
-        self.order_detail_table.setColumnWidth(16, 120) # 预估毛利率
-        self.order_detail_table.setColumnWidth(17, 150) # 采购价格
-        self.order_detail_table.setColumnWidth(18, 120) # 运费
-        self.order_detail_table.setColumnWidth(19, 100) # 杂费
-        self.order_detail_table.setColumnWidth(20, 150) # 总金额
-        self.order_detail_table.setColumnWidth(21, 180) # 工厂简称
-        self.order_detail_table.setColumnWidth(22, 300) # 店铺链接
-        self.order_detail_table.setColumnWidth(23, 150) # 交货日期
-        self.order_detail_table.setColumnWidth(24, 100) # 是否已收货
-        self.order_detail_table.setColumnWidth(25, 150) # 工厂订金
-        self.order_detail_table.setColumnWidth(26, 150) # 工厂尾款
-        self.order_detail_table.setColumnWidth(27, 120) # 入库操作
-        self.order_detail_table.setColumnWidth(28, 100) # 入库数量
-        self.order_detail_table.setColumnWidth(29, 120) # 包装方式
-        self.order_detail_table.setColumnWidth(30, 180) # 采购选项/名称
-        self.order_detail_table.setColumnWidth(31, 200) # 产品细节
-        self.order_detail_table.setColumnWidth(32, 150) # 工厂编号
-        self.order_detail_table.setColumnWidth(33, 150) # 纸箱尺寸
-        self.order_detail_table.setColumnWidth(34, 150) # 打包规格
-        self.order_detail_table.setColumnWidth(35, 80)  # 箱数
-        self.order_detail_table.setColumnWidth(36, 120) # 预估体积
-        self.order_detail_table.setColumnWidth(37, 120) # 整箱毛重
-        self.order_detail_table.setColumnWidth(38, 120) # 总重量
-        self.order_detail_table.setColumnWidth(39, 120) # 品牌
-        self.order_detail_table.setColumnWidth(40, 150) # 开票情况
+        # 设置列宽度（紧凑布局，适应屏幕）
+        self.order_detail_table.setColumnWidth(0, 50)    # 序号/标记列
+        self.order_detail_table.setColumnWidth(1, 100)   # ORDER NO.
+        self.order_detail_table.setColumnWidth(2, 100)   # 客户产品编号/客户
+        self.order_detail_table.setColumnWidth(3, 100)   # OE号/总金额
+        self.order_detail_table.setColumnWidth(4, 120)   # 备注/状态
+        self.order_detail_table.setColumnWidth(5, 120)   # 产品名称/预付款
+        self.order_detail_table.setColumnWidth(6, 60)   # 图片列
+        self.order_detail_table.setColumnWidth(7, 100)   # 客户型号
+        self.order_detail_table.setColumnWidth(8, 100)   # OE号.1
+        self.order_detail_table.setColumnWidth(9, 60)   # 数量列
+        self.order_detail_table.setColumnWidth(10, 80)  # 报价列
+        self.order_detail_table.setColumnWidth(11, 100)  # 合计金额
+        self.order_detail_table.setColumnWidth(12, 150)  # 客户最新回复
+        self.order_detail_table.setColumnWidth(13, 80)   # 客户预付款
+        self.order_detail_table.setColumnWidth(14, 80)   # 待收尾款
+        self.order_detail_table.setColumnWidth(15, 100)  # 预估美金报价
+        self.order_detail_table.setColumnWidth(16, 80)   # 预估毛利率
+        self.order_detail_table.setColumnWidth(17, 100)  # 采购价格
+        self.order_detail_table.setColumnWidth(18, 80)   # 运费
+        self.order_detail_table.setColumnWidth(19, 60)   # 杂费
+        self.order_detail_table.setColumnWidth(20, 100)  # 总金额
+        self.order_detail_table.setColumnWidth(21, 100)  # 工厂简称
+        self.order_detail_table.setColumnWidth(22, 150)  # 店铺链接
+        self.order_detail_table.setColumnWidth(23, 100)  # 交货日期
+        self.order_detail_table.setColumnWidth(24, 80)   # 是否已收货
+        self.order_detail_table.setColumnWidth(25, 100)  # 工厂订金
+        self.order_detail_table.setColumnWidth(26, 100)  # 工厂尾款
+        self.order_detail_table.setColumnWidth(27, 80)   # 入库操作
+        self.order_detail_table.setColumnWidth(28, 60)   # 入库数量
+        self.order_detail_table.setColumnWidth(29, 80)   # 包装方式
+        self.order_detail_table.setColumnWidth(30, 100)  # 采购选项/名称
+        self.order_detail_table.setColumnWidth(31, 120)  # 产品细节
+        self.order_detail_table.setColumnWidth(32, 80)   # 工厂编号
+        self.order_detail_table.setColumnWidth(33, 100)  # 纸箱尺寸
+        self.order_detail_table.setColumnWidth(34, 100)  # 打包规格
+        self.order_detail_table.setColumnWidth(35, 60)   # 箱数
+        self.order_detail_table.setColumnWidth(36, 80)   # 预估体积
+        self.order_detail_table.setColumnWidth(37, 80)   # 整箱毛重
+        self.order_detail_table.setColumnWidth(38, 80)   # 总重量
+        self.order_detail_table.setColumnWidth(39, 80)   # 品牌
+        self.order_detail_table.setColumnWidth(40, 100)  # 开票情况
         self.order_detail_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.order_detail_table.setAlternatingRowColors(True)
         self.order_detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -4795,7 +4795,7 @@ class MainWindow(QMainWindow):
             # 图片列
             from PySide6.QtWidgets import QLabel
             image_label = QLabel()
-            image_label.setFixedSize(74, 74)
+            image_label.setFixedSize(54, 54)
             image_label.setAlignment(Qt.AlignCenter)
             image_label.setStyleSheet("border: 1px solid #e5e7eb;")
             image_url = item.get('image_url', '') or item.get('image', '')
@@ -4803,12 +4803,12 @@ class MainWindow(QMainWindow):
                 try:
                     image_data = urllib.request.urlopen(image_url).read()
                     image = QImage.fromData(image_data)
-                    pixmap = QPixmap.fromImage(image).scaled(68, 68, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    pixmap = QPixmap.fromImage(image).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     image_label.setPixmap(pixmap)
                 except:
-                    image_label.setText("暂无")
+                    image_label.setText("无")
             else:
-                image_label.setText("暂无")
+                image_label.setText("无")
             self.order_detail_table.setCellWidget(row, 6, image_label)
             
             self.order_detail_table.setItem(row, 7, QTableWidgetItem(item.get('customer_model', '')))              # 客户型号
