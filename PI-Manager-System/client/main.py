@@ -40,6 +40,11 @@ from config import Config
 from product_categories import get_category_options, get_category_code, get_category_name
 from widgets.action_bar import ActionBarFactory
 from widgets.order_summary_edit_dialog import OrderSummaryEditDialog
+from widgets.order_summary_dialogs import (
+    CustomerRequirementDialog, 
+    CustomerModelDialog, 
+    CustomerReplyDialog
+)
 
 # 测试文件导入（可选）
 import sys
@@ -3765,6 +3770,8 @@ class MainWindow(QMainWindow):
         self.order_summary_table.setAlternatingRowColors(True)
         # 绑定双击事件
         self.order_summary_table.cellDoubleClicked.connect(self._on_order_summary_double_click)
+        # 绑定单元格点击事件（用于特定列打开对话框）
+        self.order_summary_table.cellClicked.connect(self._on_order_summary_cell_click)
         
         # 存储所有订单的完整数据，用于编辑
         self._order_summary_orders = []
@@ -4041,12 +4048,22 @@ class MainWindow(QMainWindow):
             'product_spec': product.get('specifications', '') if product else '',
             'invoice_status': '',
             'status': '已完成' if is_completed else '进行中',
+            # 客户最新回复（从API获取）
+            'customer_reply': '',
             # 额外信息用于编辑
             'pi_id': pi_id,
             'product_id': product_id,
             'customer_id': customer_id,
             'purchase_id': purchase.get('id') if purchase else None,
         }
+        
+        # 获取客户最新回复
+        try:
+            latest_reply = self.api_client.get_latest_customer_reply(pi_id)
+            if latest_reply:
+                order_data['customer_reply'] = latest_reply.get('reply_content', '')
+        except Exception as e:
+            print(f"[DEBUG] 订单总表: 获取客户回复失败: {e}")
         
         return order_data
     
@@ -4111,8 +4128,11 @@ class MainWindow(QMainWindow):
             # 填充完所有列后设置行高（图片需要更大的行高）
             self.order_summary_table.setRowHeight(row, 60)
             
-            # 12: 客户最新回复
-            self.order_summary_table.setItem(row, 12, QTableWidgetItem(""))
+            # 12: 客户最新回复（从API获取）
+            customer_reply = order.get('customer_reply', '')
+            reply_item = QTableWidgetItem(customer_reply[:50] + "..." if len(customer_reply) > 50 else customer_reply)
+            reply_item.setForeground(QBrush(QColor("#059669")))  # 绿色显示
+            self.order_summary_table.setItem(row, 12, reply_item)
             
             # 13: 客户预付款
             prepay_item = QTableWidgetItem(f"{order['customer_prepayment']:.2f}")
@@ -4281,6 +4301,85 @@ class MainWindow(QMainWindow):
         # 根据需要更新表格
         # 这里可以实现保存到后端的逻辑
         QMessageBox.information(self, "成功", "订单已保存")
+    
+    def _on_order_summary_cell_click(self, row, column):
+        """订单总表单元格点击事件 - 特定列打开独立窗口"""
+        # 列索引: 4=客户需求备注, 7=客户型号, 12=客户最新回复
+        special_columns = {4: "客户需求备注", 7: "客户型号", 12: "客户最新回复"}
+        
+        if column not in special_columns:
+            return
+        
+        print(f"[DEBUG] 订单总表: 点击行 {row}, 列 {column} ({special_columns[column]})")
+        
+        # 检查数据是否加载
+        if not hasattr(self, '_order_summary_orders') or row >= len(self._order_summary_orders):
+            return
+        
+        order_data = self._order_summary_orders[row]
+        pi_id = order_data.get('pi_id')
+        pi_no = order_data.get('order_no', '')
+        
+        if column == 4:  # 客户需求备注
+            self._open_requirement_dialog(order_data, row)
+        elif column == 7:  # 客户型号
+            self._open_customer_model_dialog(order_data, row)
+        elif column == 12:  # 客户最新回复
+            self._open_customer_reply_dialog(pi_id, pi_no, order_data, row)
+    
+    def _open_requirement_dialog(self, order_data, row):
+        """打开客户需求备注对话框"""
+        current_value = order_data.get('customer_requirement', '')
+        pi_no = order_data.get('order_no', '')
+        
+        dialog = CustomerRequirementDialog(current_value, pi_no, self)
+        dialog.saved.connect(lambda text: self._on_requirement_saved(text, row))
+        dialog.exec()
+    
+    def _on_requirement_saved(self, text, row):
+        """客户需求备注保存后更新"""
+        print(f"[DEBUG] 订单总表: 客户需求备注已保存到行 {row}")
+        # 更新表格显示
+        self.order_summary_table.setItem(row, 4, QTableWidgetItem(text))
+        # 更新存储的数据
+        if hasattr(self, '_order_summary_orders') and row < len(self._order_summary_orders):
+            self._order_summary_orders[row]['customer_requirement'] = text
+    
+    def _open_customer_model_dialog(self, order_data, row):
+        """打开客户型号对话框"""
+        current_value = order_data.get('customer_model', '')
+        pi_no = order_data.get('order_no', '')
+        
+        dialog = CustomerModelDialog(current_value, pi_no, self)
+        dialog.saved.connect(lambda text: self._on_customer_model_saved(text, row))
+        dialog.exec()
+    
+    def _on_customer_model_saved(self, text, row):
+        """客户型号保存后更新"""
+        print(f"[DEBUG] 订单总表: 客户型号已保存到行 {row}")
+        # 更新表格显示
+        self.order_summary_table.setItem(row, 7, QTableWidgetItem(text))
+        # 更新存储的数据
+        if hasattr(self, '_order_summary_orders') and row < len(self._order_summary_orders):
+            self._order_summary_orders[row]['customer_model'] = text
+    
+    def _open_customer_reply_dialog(self, pi_id, pi_no, order_data, row):
+        """打开客户回复对话框"""
+        current_reply = order_data.get('customer_reply', '')
+        
+        dialog = CustomerReplyDialog(pi_id, pi_no, self.api_client, current_reply, self)
+        dialog.saved.connect(lambda data: self._on_customer_reply_saved(data, row))
+        dialog.exec()
+    
+    def _on_customer_reply_saved(self, reply_data, row):
+        """客户回复保存后更新"""
+        print(f"[DEBUG] 订单总表: 客户回复已保存到行 {row}")
+        # 更新表格显示最新回复
+        content = reply_data.get('reply_content', '')[:30]
+        self.order_summary_table.setItem(row, 12, QTableWidgetItem(f"{content}..."))
+        # 更新存储的数据
+        if hasattr(self, '_order_summary_orders') and row < len(self._order_summary_orders):
+            self._order_summary_orders[row]['customer_reply'] = reply_data.get('reply_content', '')
     
     def export_order_summary(self):
         """导出订单总表为Excel"""
