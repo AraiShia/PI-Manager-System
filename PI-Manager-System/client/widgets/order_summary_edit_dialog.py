@@ -97,11 +97,50 @@ class OrderSummaryEditDialog(QDialog):
     
     def _show_quick_add(self, module_type):
         """显示快速新增对话框"""
-        dialog = QuickAddDialog(module_type, self.api_client, self)
-        if dialog.exec():
-            new_id, new_data = dialog.get_result()
-            self.new_records[module_type] = {'id': new_id, 'data': new_data}
-            QMessageBox.information(self, "成功", f"已新增 {module_type}，ID: {new_id}")
+        # 检查parent是否是MainWindow
+        main_window = None
+        if self.parent() and hasattr(self.parent(), 'add_product') and hasattr(self.parent(), 'add_customer'):
+            main_window = self.parent()
+        
+        if module_type == "product" and main_window:
+            # 调用MainWindow的新增产品窗口
+            main_window.add_product()
+            # 刷新产品列表
+            self._refresh_product_combo()
+        elif module_type == "customer" and main_window:
+            # 调用MainWindow的新增客户窗口
+            main_window.add_customer()
+            # 刷新客户列表
+            self._refresh_customer_combo()
+        else:
+            # 使用内置的QuickAddDialog
+            dialog = QuickAddDialog(module_type, self.api_client, self)
+            if dialog.exec():
+                new_id, new_data = dialog.get_result()
+                self.new_records[module_type] = {'id': new_id, 'data': new_data}
+                QMessageBox.information(self, "成功", f"已新增 {module_type}，ID: {new_id}")
+    
+    def _refresh_product_combo(self):
+        """刷新产品下拉框"""
+        try:
+            products = self.api_client.get_products() or []
+            self.product_combo.clear()
+            self.product_combo.addItem("-- 选择产品 --", None)
+            for p in products:
+                self.product_combo.addItem(f"{p.get('product_code', '')} - {p.get('detail_desc', '')}", p.get('id'))
+        except Exception as e:
+            print(f"刷新产品列表失败: {e}")
+    
+    def _refresh_customer_combo(self):
+        """刷新客户下拉框"""
+        try:
+            customers = self.api_client.get_customers() or []
+            self.customer_combo.clear()
+            self.customer_combo.addItem("-- 选择客户 --", None)
+            for c in customers:
+                self.customer_combo.addItem(c.get('customer_name', ''), c.get('id'))
+        except Exception as e:
+            print(f"刷新客户列表失败: {e}")
     
     def _create_order_tab(self):
         """创建订单信息标签页"""
