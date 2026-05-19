@@ -600,3 +600,55 @@ class ApiClient:
     def delete_customer_reply(self, reply_id: int) -> Dict:
         """删除客户回复"""
         return self.delete(f"/customer-replies/{reply_id}")
+
+    # ========== 产品OE关联 ==========
+
+    def get_product_oes(self, product_id: int) -> List[Dict]:
+        """获取产品的所有OE号"""
+        return self.get(f"/product-oes/product/{product_id}")
+
+    def get_primary_oe(self, product_id: int) -> Optional[Dict]:
+        """获取产品的主OE号"""
+        return self.get(f"/product-oes/product/{product_id}/primary")
+
+    def create_product_oe(self, data: Dict) -> Dict:
+        """创建产品OE关联"""
+        return self.post("/product-oes", data)
+
+    def update_product_oe(self, oe_id: int, data: Dict) -> Dict:
+        """更新产品OE"""
+        return self.put(f"/product-oes/{oe_id}", data)
+
+    def delete_product_oe(self, oe_id: int) -> Dict:
+        """删除产品OE"""
+        return self.delete(f"/product-oes/{oe_id}")
+
+    def set_primary_oe(self, product_id: int, oe_id: int) -> Dict:
+        """设置主OE号"""
+        return self.post(f"/product-oes/product/{product_id}/set-primary/{oe_id}", {})
+
+    # ========== 产品-客户关联 ==========
+
+    def get_product_customers(self, product_id: int) -> List[Dict]:
+        """获取产品的所有客户关联"""
+        return self.get(f"/product-customers/product/{product_id}")
+
+    def get_customer_products(self, customer_id: int) -> List[Dict]:
+        """获取客户的所有产品关联"""
+        return self.get(f"/product-customers/customer/{customer_id}")
+
+    def get_product_customer(self, product_id: int, customer_id: int) -> Optional[Dict]:
+        """获取产品-客户的特定关联"""
+        return self.get(f"/product-customers/product/{product_id}/customer/{customer_id}")
+
+    def create_product_customer(self, data: Dict) -> Dict:
+        """创建产品-客户关联"""
+        return self.post("/product-customers", data)
+
+    def update_product_customer(self, pc_id: int, data: Dict) -> Dict:
+        """更新产品-客户关联"""
+        return self.put(f"/product-customers/{pc_id}", data)
+
+    def delete_product_customer(self, pc_id: int) -> Dict:
+        """删除产品-客户关联"""
+        return self.delete(f"/product-customers/{pc_id}")
