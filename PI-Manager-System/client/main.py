@@ -317,6 +317,8 @@ class ProductDialog(QDialog):
         # 加载已有方案
         if self.is_edit and self.product:
             self.load_supplier_schemes()
+            self.load_product_oes()
+            self.load_product_customers()
 
     def init_ui(self):
         self.setWindowTitle("编辑产品" if self.is_edit else "新增产品")
@@ -483,7 +485,85 @@ class ProductDialog(QDialog):
 
         supplier_scheme_group.setLayout(supplier_scheme_layout)
         scroll_layout.addWidget(supplier_scheme_group)
-
+        
+        # ===== OE号管理区域 =====
+        oe_group = QGroupBox("OE号管理")
+        oe_layout = QVBoxLayout()
+        
+        # OE列表工具栏
+        oe_toolbar = QHBoxLayout()
+        self.oe_table = QTableWidget()
+        self.oe_table.setColumnCount(4)
+        self.oe_table.setHorizontalHeaderLabels(["OE号", "是否主OE", "创建时间", "操作"])
+        self.oe_table.setColumnWidth(0, 200)
+        self.oe_table.setColumnWidth(1, 80)
+        self.oe_table.setColumnWidth(2, 150)
+        self.oe_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.oe_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.oe_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.oe_table.setFixedHeight(150)
+        oe_layout.addWidget(self.oe_table)
+        
+        # 添加OE按钮
+        add_oe_btn = QPushButton("+ 添加OE号")
+        add_oe_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        add_oe_btn.clicked.connect(self.add_product_oe)
+        oe_toolbar.addWidget(add_oe_btn)
+        oe_toolbar.addStretch()
+        oe_layout.addLayout(oe_toolbar)
+        
+        oe_group.setLayout(oe_layout)
+        scroll_layout.addWidget(oe_group)
+        
+        # ===== 客户产品编号管理区域 =====
+        pc_group = QGroupBox("客户产品编号管理")
+        pc_layout = QVBoxLayout()
+        
+        # 客户产品列表
+        self.pc_table = QTableWidget()
+        self.pc_table.setColumnCount(6)
+        self.pc_table.setHorizontalHeaderLabels(["客户", "客户产品编号", "客户OE号", "USD价格", "RMB价格", "操作"])
+        self.pc_table.setColumnWidth(0, 150)
+        self.pc_table.setColumnWidth(1, 150)
+        self.pc_table.setColumnWidth(2, 150)
+        self.pc_table.setColumnWidth(3, 100)
+        self.pc_table.setColumnWidth(4, 100)
+        self.pc_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self.pc_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.pc_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.pc_table.setFixedHeight(180)
+        pc_layout.addWidget(self.pc_table)
+        
+        # 添加客户产品按钮
+        add_pc_btn = QPushButton("+ 添加客户产品")
+        add_pc_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover { background-color: #059669; }
+        """)
+        add_pc_btn.clicked.connect(self.add_product_customer)
+        pc_toolbar = QHBoxLayout()
+        pc_toolbar.addWidget(add_pc_btn)
+        pc_toolbar.addStretch()
+        pc_layout.addLayout(pc_toolbar)
+        
+        pc_group.setLayout(pc_layout)
+        scroll_layout.addWidget(pc_group)
+        
         scroll_area.setWidget(scroll_widget)
         layout.addWidget(scroll_area)
 
@@ -723,7 +803,263 @@ class ProductDialog(QDialog):
         if 0 <= row < len(self.supplier_schemes):
             self.supplier_schemes.pop(row)
             self.refresh_scheme_table()
-
+    
+    # ===== OE号管理 =====
+    def load_product_oes(self):
+        """加载产品的OE列表"""
+        try:
+            if self.product and self.product.get('id'):
+                self.product_oes = self.api_client.get_product_oes(self.product.get('id')) or []
+            else:
+                self.product_oes = []
+            self.refresh_oe_table()
+        except Exception as e:
+            print(f"加载OE列表失败: {e}")
+            self.product_oes = []
+            self.refresh_oe_table()
+    
+    def refresh_oe_table(self):
+        """刷新OE列表"""
+        self.oe_table.setRowCount(len(self.product_oes))
+        for row, oe in enumerate(self.product_oes):
+            self.oe_table.setItem(row, 0, QTableWidgetItem(oe.get('oe_number', '')))
+            is_primary = "✓ 主OE" if oe.get('is_primary') else "—"
+            primary_item = QTableWidgetItem(is_primary)
+            primary_item.setTextAlignment(Qt.AlignCenter)
+            self.oe_table.setItem(row, 1, primary_item)
+            self.oe_table.setItem(row, 2, QTableWidgetItem(str(oe.get('created_at', ''))[:19]))
+            
+            # 操作按钮
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            
+            if not oe.get('is_primary'):
+                set_primary_btn = QPushButton("设主")
+                set_primary_btn.setFixedWidth(40)
+                set_primary_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3b82f6;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 2px 6px;
+                        font-size: 10px;
+                    }
+                    QPushButton:hover { background-color: #2563eb; }
+                """)
+                set_primary_btn.clicked.connect(lambda _, oid=oe.get('id'): self.set_product_oe_primary(oid))
+                action_layout.addWidget(set_primary_btn)
+            
+            del_btn = QPushButton("删除")
+            del_btn.setFixedWidth(40)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #dc2626;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 2px 6px;
+                    font-size: 10px;
+                }
+                QPushButton:hover { background-color: #b91c1c; }
+            """)
+            del_btn.clicked.connect(lambda _, oid=oe.get('id'): self.delete_product_oe(oid))
+            action_layout.addWidget(del_btn)
+            
+            action_widget.setLayout(action_layout)
+            self.oe_table.setCellWidget(row, 3, action_widget)
+    
+    def add_product_oe(self):
+        """添加OE号"""
+        from widgets.product_oe_dialog import AddOEDialog
+        
+        if not self.product:
+            QMessageBox.warning(self, "提示", "请先保存产品基本信息后再添加OE号")
+            return
+        
+        dialog = AddOEDialog(self.product.get('id'), self.api_client, self)
+        if dialog.exec() == QDialog.Accepted:
+            self.load_product_oes()
+    
+    def set_product_oe_primary(self, oe_id):
+        """设置为主OE"""
+        try:
+            self.api_client.set_primary_oe(self.product.get('id'), oe_id)
+            self.load_product_oes()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"设置失败: {e}")
+    
+    def delete_product_oe(self, oe_id):
+        """删除OE"""
+        reply = QMessageBox.question(self, "确认", "确定删除此OE号？", 
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.api_client.delete_product_oe(oe_id)
+                self.load_product_oes()
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"删除失败: {e}")
+    
+    # ===== 客户产品编号管理 =====
+    def load_product_customers(self):
+        """加载产品的客户关联"""
+        try:
+            if self.product and self.product.get('id'):
+                self.product_customers = self.api_client.get_product_customers(self.product.get('id')) or []
+            else:
+                self.product_customers = []
+            self.refresh_pc_table()
+        except Exception as e:
+            print(f"加载客户产品失败: {e}")
+            self.product_customers = []
+            self.refresh_pc_table()
+    
+    def refresh_pc_table(self):
+        """刷新客户产品列表"""
+        self.pc_table.setRowCount(len(self.product_customers))
+        for row, pc in enumerate(self.product_customers):
+            # 客户名
+            customer_id = pc.get('customer_id')
+            customer_name = ""
+            if self.customers:
+                for c in self.customers:
+                    if c.get('id') == customer_id:
+                        customer_name = c.get('customer_name', '')
+                        break
+            self.pc_table.setItem(row, 0, QTableWidgetItem(customer_name))
+            self.pc_table.setItem(row, 1, QTableWidgetItem(pc.get('customer_product_code', '')))
+            self.pc_table.setItem(row, 2, QTableWidgetItem(pc.get('customer_oe_number', '')))
+            self.pc_table.setItem(row, 3, QTableWidgetItem(str(pc.get('price_usd', ''))))
+            self.pc_table.setItem(row, 4, QTableWidgetItem(str(pc.get('price_rmb', ''))))
+            
+            # 操作按钮
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            
+            del_btn = QPushButton("删除")
+            del_btn.setFixedWidth(40)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #dc2626;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 2px 6px;
+                    font-size: 10px;
+                }
+                QPushButton:hover { background-color: #b91c1c; }
+            """)
+            del_btn.clicked.connect(lambda _, pcid=pc.get('id'): self.delete_product_customer(pcid))
+            action_layout.addWidget(del_btn)
+            
+            action_widget.setLayout(action_layout)
+            self.pc_table.setCellWidget(row, 5, action_widget)
+    
+    def add_product_customer(self):
+        """添加客户产品"""
+        if not self.product:
+            QMessageBox.warning(self, "提示", "请先保存产品基本信息后再添加客户产品")
+            return
+        
+        # 弹窗选择客户并输入信息
+        from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDoubleSpinBox, QComboBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("添加客户产品")
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(dialog)
+        
+        form = QFormLayout()
+        
+        customer_combo = QComboBox()
+        customer_combo.addItem("-- 选择客户 --", None)
+        for c in (self.customers or []):
+            customer_combo.addItem(c.get('customer_name', ''), c.get('id'))
+        form.addRow("客户:", customer_combo)
+        
+        code_edit = QLineEdit()
+        code_edit.setPlaceholderText("客户产品编号")
+        form.addRow("客户产品编号:", code_edit)
+        
+        oe_edit = QLineEdit()
+        oe_edit.setPlaceholderText("客户OE号")
+        form.addRow("客户OE号:", oe_edit)
+        
+        price_usd = QDoubleSpinBox()
+        price_usd.setRange(0, 9999999)
+        price_usd.setDecimals(2)
+        price_usd.setPrefix("$ ")
+        form.addRow("USD价格:", price_usd)
+        
+        price_rmb = QDoubleSpinBox()
+        price_rmb.setRange(0, 9999999)
+        price_rmb.setDecimals(2)
+        price_rmb.setPrefix("¥ ")
+        form.addRow("RMB价格:", price_rmb)
+        
+        layout.addLayout(form)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("保存")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover { background-color: #059669; }
+        """)
+        save_btn.clicked.connect(lambda: self._save_product_customer(
+            customer_combo.currentData(), code_edit.text(), oe_edit.text(),
+            price_usd.value(), price_rmb.value(), dialog
+        ))
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+        dialog.exec()
+    
+    def _save_product_customer(self, customer_id, code, customer_oe, price_usd, price_rmb, dialog):
+        """保存客户产品关联"""
+        if not customer_id:
+            QMessageBox.warning(dialog, "提示", "请选择客户")
+            return
+        
+        try:
+            data = {
+                "product_id": self.product.get('id'),
+                "customer_id": customer_id,
+                "customer_product_code": code,
+                "customer_oe_number": customer_oe,
+                "price_usd": price_usd if price_usd > 0 else None,
+                "price_rmb": price_rmb if price_rmb > 0 else None
+            }
+            self.api_client.create_product_customer(data)
+            dialog.accept()
+            self.load_product_customers()
+        except Exception as e:
+            QMessageBox.warning(dialog, "错误", f"保存失败: {e}")
+    
+    def delete_product_customer(self, pc_id):
+        """删除客户产品关联"""
+        reply = QMessageBox.question(self, "确认", "确定删除此客户产品关联？", 
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.api_client.delete_product_customer(pc_id)
+                self.load_product_customers()
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"删除失败: {e}")
+    
     def save_product(self):
         print("DEBUG - save_product called")
         
