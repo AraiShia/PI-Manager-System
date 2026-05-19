@@ -2831,7 +2831,7 @@ class MainWindow(QMainWindow):
         self.products_table = QTableWidget()
         self.products_table.setColumnCount(11)
         self.products_table.setHorizontalHeaderLabels([
-            "复选框", "客户产品编号", "OE号", "图片", "产品名称", 
+            "", "客户产品编号", "OE号", "图片", "产品名称", 
             "客户型号", "客户号", "产品特性", "数量", "报价", "编辑"
         ])
         self.products_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -2839,11 +2839,11 @@ class MainWindow(QMainWindow):
         self.products_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         # 设置图片列宽度和行高
         self.products_table.setColumnWidth(3, 70)
-        self.products_table.setColumnWidth(0, 50)  # 复选框列
+        self.products_table.setColumnWidth(0, 30)  # 复选框列（无表头，仅显示checkbox）
         self.products_table.setColumnWidth(10, 50)  # 编辑列
         self.products_table.verticalHeader().setDefaultSectionSize(70)
         self.products_table.doubleClicked.connect(self.on_product_double_click)
-        self.setup_table_context_menu(self.products_table, ["复选框", "客户产品编号", "OE号", "图片", "产品名称", "客户型号", "客户号", "产品特性", "数量", "报价", "编辑"])
+        self.setup_table_context_menu(self.products_table, ["", "客户产品编号", "OE号", "图片", "产品名称", "客户型号", "客户号", "产品特性", "数量", "报价", "编辑"])
         layout.addWidget(self.products_table)
 
         widget.setLayout(layout)
@@ -6467,36 +6467,86 @@ class MainWindow(QMainWindow):
                 products = []
             self.products_table.setRowCount(len(products))
             for row, p in enumerate(products):
-                # 0: 选择
+                product_id = p.get('id')
+                
+                # 0: 复选框
                 checkbox = QCheckBox()
                 checkbox.setStyleSheet("margin-left: 50%;")
                 self.products_table.setCellWidget(row, 0, checkbox)
-                # 1: 产品编号
-                self.products_table.setItem(row, 1, QTableWidgetItem(p.get('product_code', '')))
-                # 2: 图片
+                
+                # 获取OE和客户关联
+                oe_list = []
+                customer_product_list = []
+                try:
+                    oe_list = self.api_client.get_product_oes(product_id) or []
+                    customer_product_list = self.api_client.get_product_customers(product_id) or []
+                except:
+                    pass
+                
+                # 1: 客户产品编号
+                customer_product_code = ""
+                if customer_product_list:
+                    first_pc = customer_product_list[0]
+                    full_code = first_pc.get('customer_product_code', '')
+                    customer_code = first_pc.get('customer_code', '')
+                    if full_code and customer_code:
+                        customer_product_code = full_code.replace(customer_code, "", 1).lstrip("-")
+                    else:
+                        customer_product_code = full_code or ""
+                self.products_table.setItem(row, 1, QTableWidgetItem(customer_product_code))
+                
+                # 2: OE号
+                primary_oe = next((oe for oe in oe_list if oe.get('is_primary')), None)
+                if len(oe_list) > 1:
+                    btn = QPushButton("多OE号")
+                    btn.setStyleSheet("""
+                        QPushButton {
+                            background-color: #3b82f6;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            padding: 4px 8px;
+                            font-size: 11px;
+                        }
+                        QPushButton:hover { background-color: #2563eb; }
+                    """)
+                    btn.clicked.connect(lambda checked, pid=product_id, oes=oe_list: self._show_product_oe_dialog(pid, oes))
+                    self.products_table.setCellWidget(row, 2, btn)
+                elif primary_oe:
+                    self.products_table.setItem(row, 2, QTableWidgetItem(primary_oe.get('oe_number', '')))
+                else:
+                    self.products_table.setItem(row, 2, QTableWidgetItem(p.get('oe_number', '') or '-'))
+                
+                # 3: 图片
                 image_label = QLabel()
                 image_label.setFixedSize(60, 60)
                 image_label.setStyleSheet("border: 1px solid #e5e7eb;")
-                image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                image_label.setAlignment(Qt.AlignCenter)
                 image_url = p.get('default_image_url')
                 if image_url:
                     self.load_image_async(image_label, image_url)
                 else:
                     image_label.setText("暂无图片")
                 image_label.setCursor(Qt.CursorShape.PointingHandCursor)
-                self.products_table.setCellWidget(row, 2, image_label)
-                # 3: OE号
-                self.products_table.setItem(row, 3, QTableWidgetItem(p.get('oe_number', '')))
+                self.products_table.setCellWidget(row, 3, image_label)
+                
                 # 4: 产品名称
                 self.products_table.setItem(row, 4, QTableWidgetItem(p.get('detail_desc', '')))
-                # 5: 品牌
-                self.products_table.setItem(row, 5, QTableWidgetItem(p.get('brand', '') or '-'))
+                
+                # 5: 客户型号
+                customer_model = ""
+                if customer_product_list:
+                    customer_model = customer_product_list[0].get('customer_model', '') or ""
+                self.products_table.setItem(row, 5, QTableWidgetItem(customer_model))
+                
                 # 6: 客户号（留空）
                 self.products_table.setItem(row, 6, QTableWidgetItem(""))
-                # 7: 客户型号（留空）
-                self.products_table.setItem(row, 7, QTableWidgetItem(""))
+                
+                # 7: 产品特性（品牌）
+                self.products_table.setItem(row, 7, QTableWidgetItem(p.get('brand', '') or '-'))
+                
                 # 8: 数量（库存）
-                qty = inventory_summary.get(p.get('id'), 0)
+                qty = inventory_summary.get(product_id, 0)
                 qty_item = QTableWidgetItem(str(int(qty)) if qty else '0')
                 if qty > 0:
                     qty_item.setForeground(QBrush(QColor("#10b981")))
