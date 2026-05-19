@@ -607,6 +607,13 @@ class ApiClient:
         """获取产品的所有OE号"""
         return self.get(f"/product-oes/product/{product_id}")
 
+    def get_product_oes_batch(self, product_ids: List[int]) -> List[Dict]:
+        """批量获取多个产品的OE号（优化性能）"""
+        if not product_ids:
+            return []
+        ids_str = ",".join(str(x) for x in product_ids)
+        return self.get(f"/product-oes/batch?product_ids={ids_str}")
+
     def get_primary_oe(self, product_id: int) -> Optional[Dict]:
         """获取产品的主OE号"""
         return self.get(f"/product-oes/product/{product_id}/primary")
@@ -632,6 +639,13 @@ class ApiClient:
     def get_product_customers(self, product_id: int) -> List[Dict]:
         """获取产品的所有客户关联"""
         return self.get(f"/product-customers/product/{product_id}")
+
+    def get_product_customers_batch(self, product_ids: List[int]) -> List[Dict]:
+        """批量获取多个产品的客户关联（优化性能）"""
+        if not product_ids:
+            return []
+        ids_str = ",".join(str(x) for x in product_ids)
+        return self.get(f"/product-customers/batch?product_ids={ids_str}")
 
     def get_customer_products(self, customer_id: int) -> List[Dict]:
         """获取客户的所有产品关联"""

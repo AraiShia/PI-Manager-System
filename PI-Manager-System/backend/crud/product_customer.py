@@ -89,3 +89,10 @@ def delete_product_customer(db: Session, pc_id: int) -> bool:
     db.delete(db_pc)
     db.commit()
     return True
+
+
+def get_product_customers_by_ids(db: Session, product_ids: List[int]) -> List[PrdProductCustomer]:
+    """批量获取多个产品的客户关联（优化性能）"""
+    return db.query(PrdProductCustomer).filter(
+        PrdProductCustomer.product_id.in_(product_ids)
+    ).all()

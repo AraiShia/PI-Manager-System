@@ -86,3 +86,10 @@ def set_primary_oe(db: Session, product_id: int, oe_id: int) -> bool:
         db.commit()
         return True
     return False
+
+
+def get_oes_by_product_ids(db: Session, product_ids: List[int]) -> List[PrdProductOE]:
+    """批量获取多个产品的OE号（优化性能）"""
+    return db.query(PrdProductOE).filter(
+        PrdProductOE.product_id.in_(product_ids)
+    ).order_by(PrdProductOE.product_id, PrdProductOE.is_primary.desc()).all()

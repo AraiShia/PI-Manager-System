@@ -1,9 +1,9 @@
 """
 产品-客户关联API路由
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from app.database import get_db
 from schemas.product_customer import (
     ProductCustomerCreate, ProductCustomerUpdate, 
@@ -20,6 +20,40 @@ router = APIRouter(prefix="/api/product-customers", tags=["产品客户关联"])
 def get_all_product_customers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """获取所有产品-客户关联"""
     return crud.get_all_product_customers(db, skip=skip, limit=limit)
+
+
+@router.get("/batch", response_model=List[ProductCustomerDetailResponse])
+def get_product_customers_batch(
+    product_ids: str = Query(..., description="产品ID列表，逗号分隔，如: 1,2,3"),
+    db: Session = Depends(get_db)
+):
+    """批量获取多个产品的客户关联（优化性能）"""
+    try:
+        ids = [int(x.strip()) for x in product_ids.split(",") if x.strip()]
+        db_pcs = crud.get_product_customers_by_ids(db, ids)
+        
+        result = []
+        for db_pc in db_pcs:
+            customer = db.query(CrmCustomer).filter(CrmCustomer.id == db_pc.customer_id).first()
+            pc_dict = {
+                "id": db_pc.id,
+                "product_id": db_pc.product_id,
+                "customer_id": db_pc.customer_id,
+                "customer_product_code": db_pc.customer_product_code,
+                "customer_oe_number": db_pc.customer_oe_number,
+                "price_usd": db_pc.price_usd,
+                "price_rmb": db_pc.price_rmb,
+                "is_active": db_pc.is_active,
+                "created_at": db_pc.created_at,
+                "updated_at": db_pc.updated_at,
+                "customer_code": customer.customer_code if customer else None,
+                "customer_name": customer.customer_name if customer else None
+            }
+            result.append(pc_dict)
+        return result
+    except Exception as e:
+        print(f"批量获取客户产品失败: {e}")
+        return []
 
 
 @router.get("/product/{product_id}", response_model=List[ProductCustomerDetailResponse])

@@ -4954,9 +4954,36 @@ class MainWindow(QMainWindow):
             print(f"[DEBUG] 产品列表: 共加载 {len(products)} 个产品")
             self.products_table.setRowCount(len(products))
             
+            # 批量获取OE和客户产品数据（优化性能）
+            product_ids = [p.get('id') for p in products if p.get('id')]
+            all_oes = []
+            all_customer_products = []
+            try:
+                if product_ids:
+                    all_oes = self.api_client.get_product_oes_batch(product_ids) or []
+                    all_customer_products = self.api_client.get_product_customers_batch(product_ids) or []
+                    print(f"[DEBUG] 产品列表: 批量获取OE={len(all_oes)}条, 客户产品={len(all_customer_products)}条")
+            except Exception as e:
+                print(f"[DEBUG] 产品列表: 批量获取数据失败: {e}")
+            
+            # 按product_id分组
+            oes_by_product = {}
+            for oe in all_oes:
+                pid = oe.get('product_id')
+                if pid not in oes_by_product:
+                    oes_by_product[pid] = []
+                oes_by_product[pid].append(oe)
+            
+            pc_by_product = {}
+            for pc in all_customer_products:
+                pid = pc.get('product_id')
+                if pid not in pc_by_product:
+                    pc_by_product[pid] = []
+                pc_by_product[pid].append(pc)
+            
             for row, p in enumerate(products):
                 product_id = p.get('id')
-                print(f"[DEBUG] 产品列表: 处理第{row}行, ID={product_id}, 产品名={p.get('detail_desc', 'N/A')}")
+                print(f"[DEBUG] 产品列表: 处理第{row}行, ID={product_id}")
                 
                 # 0: 复选框
                 checkbox = QCheckBox()
@@ -4964,15 +4991,10 @@ class MainWindow(QMainWindow):
                 checkbox.setStyleSheet("margin-left: 50%;")
                 self.products_table.setCellWidget(row, 0, checkbox)
                 
-                # 获取该产品的OE列表
-                oe_list = []
-                customer_product_list = []
-                try:
-                    oe_list = self.api_client.get_product_oes(product_id) or []
-                    customer_product_list = self.api_client.get_product_customers(product_id) or []
-                    print(f"[DEBUG] 产品列表: 行{row} - OE数量={len(oe_list)}, 客户产品数量={len(customer_product_list)}")
-                except Exception as e:
-                    print(f"[DEBUG] 产品列表: 行{row} - 获取OE/客户产品失败: {e}")
+                # 从预加载的数据中获取
+                oe_list = oes_by_product.get(product_id, [])
+                customer_product_list = pc_by_product.get(product_id, [])
+                print(f"[DEBUG] 产品列表: 行{row} - OE数量={len(oe_list)}, 客户产品数量={len(customer_product_list)}")
                 
                 # 1: 客户产品编号（从产品-客户关联获取，显示第一个客户的编号）
                 customer_product_code = ""

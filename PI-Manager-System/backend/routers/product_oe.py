@@ -1,7 +1,7 @@
 """
 产品OE关联API路由
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
@@ -15,6 +15,21 @@ router = APIRouter(prefix="/api/product-oes", tags=["产品OE关联"])
 def get_all_product_oes(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """获取所有产品OE关联"""
     return crud.get_all_product_oes(db, skip=skip, limit=limit)
+
+
+@router.get("/batch", response_model=List[ProductOEResponse])
+def get_product_oes_batch(
+    product_ids: str = Query(..., description="产品ID列表，逗号分隔，如: 1,2,3"),
+    db: Session = Depends(get_db)
+):
+    """批量获取多个产品的所有OE号（优化性能）"""
+    try:
+        ids = [int(x.strip()) for x in product_ids.split(",") if x.strip()]
+        all_oes = crud.get_oes_by_product_ids(db, ids)
+        return all_oes
+    except Exception as e:
+        print(f"批量获取OE失败: {e}")
+        return []
 
 
 @router.get("/product/{product_id}", response_model=List[ProductOEResponse])
