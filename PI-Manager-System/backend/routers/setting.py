@@ -38,6 +38,68 @@ def get_all_settings(db: Session = Depends(get_db)):
     return settings
 
 
+@router.get("/profit-margin/get")
+def get_profit_margin(db: Session = Depends(get_db)):
+    """获取毛利率设置"""
+    setting = db.query(SysSetting).filter(SysSetting.key == "default_profit_margin").first()
+    if setting:
+        return {"profit_margin": float(setting.value)}
+    return {"profit_margin": 25.0}
+
+
+@router.post("/profit-margin/set")
+def set_profit_margin(profit_margin: float, db: Session = Depends(get_db)):
+    """设置毛利率"""
+    if profit_margin < 0 or profit_margin > 100:
+        raise HTTPException(status_code=400, detail="毛利率必须在0-100之间")
+    
+    setting = db.query(SysSetting).filter(SysSetting.key == "default_profit_margin").first()
+    
+    if setting:
+        setting.value = str(profit_margin)
+    else:
+        setting = SysSetting(
+            key="default_profit_margin",
+            value=str(profit_margin),
+            description="默认毛利率（百分比）"
+        )
+        db.add(setting)
+    
+    db.commit()
+    return {"message": "毛利率已设置", "profit_margin": profit_margin}
+
+
+@router.get("/exchange-rate/get")
+def get_exchange_rate(db: Session = Depends(get_db)):
+    """获取汇率设置"""
+    setting = db.query(SysSetting).filter(SysSetting.key == "exchange_rate").first()
+    if setting:
+        return {"exchange_rate": float(setting.value)}
+    return {"exchange_rate": 7.24}
+
+
+@router.post("/exchange-rate/set")
+def set_exchange_rate(exchange_rate: float, db: Session = Depends(get_db)):
+    """设置汇率"""
+    if exchange_rate <= 0:
+        raise HTTPException(status_code=400, detail="汇率必须大于0")
+    
+    setting = db.query(SysSetting).filter(SysSetting.key == "exchange_rate").first()
+    
+    if setting:
+        setting.value = str(exchange_rate)
+    else:
+        setting = SysSetting(
+            key="exchange_rate",
+            value=str(exchange_rate),
+            description="人民币兑美元汇率"
+        )
+        db.add(setting)
+    
+    db.commit()
+    return {"message": "汇率已设置", "exchange_rate": exchange_rate}
+
+
 @router.get("/all")
 def get_all_globals(db: Session = Depends(get_db)):
     """获取所有全局变量"""
@@ -87,65 +149,3 @@ def update_setting(key: str, setting: SettingUpdate, db: Session = Depends(get_d
     
     db.commit()
     return {"message": "设置已更新", "key": key, "value": setting.value}
-
-
-@router.get("/profit-margin/get")
-def get_profit_margin(db: Session = Depends(get_db)):
-    """获取毛利率设置"""
-    setting = db.query(SysSetting).filter(SysSetting.key == "default_profit_margin").first()
-    if setting:
-        return {"profit_margin": float(setting.value)}
-    return {"profit_margin": 25.0}
-
-
-@router.post("/profit-margin/set")
-def set_profit_margin(profit_margin: float, db: Session = Depends(get_db)):
-    """设置毛利率"""
-    if profit_margin < 0 or profit_margin > 100:
-        raise HTTPException(status_code=400, detail="毛利率必须在0-100之间")
-    
-    setting = db.query(SysSetting).filter(SysSetting.key == "default_profit_margin").first()
-    
-    if setting:
-        setting.value = str(profit_margin)
-    else:
-        setting = SysSetting(
-            key="default_profit_margin",
-            value=str(profit_margin),
-            description="默认毛利率（百分比）"
-        )
-        db.add(setting)
-    
-    db.commit()
-    return {"message": "毛利率已设置", "profit_margin": profit_margin}
-
-
-@router.get("/exchange-rate/get")
-def get_exchange_rate(db: Session = Depends(get_db)):
-    """获取汇率设置"""
-    setting = db.query(SysSetting).filter(SysSetting.key == "exchange_rate").first()
-    if setting:
-        return {"exchange_rate": float(setting.value)}
-    return {"exchange_rate": 7.24}  # 默认汇率
-
-
-@router.post("/exchange-rate/set")
-def set_exchange_rate(exchange_rate: float, db: Session = Depends(get_db)):
-    """设置汇率"""
-    if exchange_rate <= 0:
-        raise HTTPException(status_code=400, detail="汇率必须大于0")
-    
-    setting = db.query(SysSetting).filter(SysSetting.key == "exchange_rate").first()
-    
-    if setting:
-        setting.value = str(exchange_rate)
-    else:
-        setting = SysSetting(
-            key="exchange_rate",
-            value=str(exchange_rate),
-            description="人民币兑美元汇率"
-        )
-        db.add(setting)
-    
-    db.commit()
-    return {"message": "汇率已设置", "exchange_rate": exchange_rate}

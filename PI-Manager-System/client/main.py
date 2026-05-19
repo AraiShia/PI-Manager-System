@@ -382,9 +382,10 @@ class SettingsDialog(QDialog):
     def load_settings(self):
         """加载设置"""
         try:
-            result = self.api_client.get_all_globals()
-            margin = result.get('default_profit_margin', 25.0)
-            rate = result.get('exchange_rate', 7.24)
+            margin_result = self.api_client.get_profit_margin()
+            rate_result = self.api_client.get_exchange_rate()
+            margin = margin_result.get('profit_margin', 25.0)
+            rate = rate_result.get('exchange_rate', 7.24)
             self.profit_margin_spin.setValue(margin)
             self.exchange_rate_spin.setValue(rate)
         except Exception as e:
@@ -2547,9 +2548,10 @@ class MainWindow(QMainWindow):
     def load_globals(self):
         """加载全局变量"""
         try:
-            result = self.api_client.get_all_globals()
-            self.default_profit_margin = result.get('default_profit_margin', 25.0)
-            self.exchange_rate = result.get('exchange_rate', 7.24)
+            margin_result = self.api_client.get_profit_margin()
+            rate_result = self.api_client.get_exchange_rate()
+            self.default_profit_margin = margin_result.get('profit_margin', 25.0)
+            self.exchange_rate = rate_result.get('exchange_rate', 7.24)
             print(f"[INFO] 全局变量加载: 毛利率={self.default_profit_margin}%, 汇率={self.exchange_rate}")
         except Exception as e:
             print(f"[WARN] 加载全局变量失败，使用默认值: {e}")
