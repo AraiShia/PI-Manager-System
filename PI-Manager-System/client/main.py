@@ -4284,6 +4284,11 @@ class MainWindow(QMainWindow):
         self.order_list_table.cellClicked.connect(self._on_order_list_click)
         list_layout.addWidget(self.order_list_table)
         
+        # 状态栏
+        self._order_summary_status = QLabel("准备就绪")
+        self._order_summary_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+        list_layout.addWidget(self._order_summary_status)
+        
         list_group.setLayout(list_layout)
         layout.addWidget(list_group)
         
