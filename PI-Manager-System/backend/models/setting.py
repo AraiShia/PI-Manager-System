@@ -21,5 +21,6 @@ class SysSetting(Base):
     def get_default_settings():
         """获取默认设置"""
         return {
-            "default_profit_margin": "25",  # 默认毛利率25%
+            "default_profit_margin": "25",      # 默认毛利率25%
+            "exchange_rate": "7.24",              # 默认汇率
         }

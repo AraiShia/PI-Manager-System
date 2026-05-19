@@ -303,30 +303,55 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         
         # 毛利率设置
-        group = QGroupBox("毛利率设置")
-        group_layout = QVBoxLayout()
+        profit_group = QGroupBox("毛利率设置")
+        profit_layout = QVBoxLayout()
         
         # 说明
-        info_label = QLabel("毛利率用于自动计算产品报价基准价。\n公式: 基准价 = 采购成本 × (1 + 毛利率)")
-        info_label.setStyleSheet("color: #64748b; font-size: 12px;")
-        group_layout.addWidget(info_label)
+        profit_info = QLabel("毛利率用于自动计算产品报价基准价。\n公式: 预估美金报价 = 工厂人民币价格 × (1 + 毛利率) / 汇率")
+        profit_info.setStyleSheet("color: #64748b; font-size: 12px;")
+        profit_layout.addWidget(profit_info)
         
         # 输入框
-        input_layout = QHBoxLayout()
-        input_layout.addWidget(QLabel("基础毛利率:"))
+        profit_input_layout = QHBoxLayout()
+        profit_input_layout.addWidget(QLabel("基础毛利率:"))
         
         self.profit_margin_spin = QDoubleSpinBox()
         self.profit_margin_spin.setRange(0, 100)
         self.profit_margin_spin.setDecimals(2)
         self.profit_margin_spin.setSuffix(" %")
         self.profit_margin_spin.setFixedWidth(120)
-        input_layout.addWidget(self.profit_margin_spin)
+        profit_input_layout.addWidget(self.profit_margin_spin)
         
-        input_layout.addStretch()
-        group_layout.addLayout(input_layout)
+        profit_input_layout.addStretch()
+        profit_layout.addLayout(profit_input_layout)
         
-        group.setLayout(group_layout)
-        layout.addWidget(group)
+        profit_group.setLayout(profit_layout)
+        layout.addWidget(profit_group)
+        
+        # 汇率设置
+        rate_group = QGroupBox("汇率设置")
+        rate_layout = QVBoxLayout()
+        
+        # 说明
+        rate_info = QLabel("人民币兑美元汇率，用于计算预估美金报价。")
+        rate_info.setStyleSheet("color: #64748b; font-size: 12px;")
+        rate_layout.addWidget(rate_info)
+        
+        # 输入框
+        rate_input_layout = QHBoxLayout()
+        rate_input_layout.addWidget(QLabel("USD/RMB 汇率:"))
+        
+        self.exchange_rate_spin = QDoubleSpinBox()
+        self.exchange_rate_spin.setRange(0.01, 100)
+        self.exchange_rate_spin.setDecimals(4)
+        self.exchange_rate_spin.setFixedWidth(120)
+        rate_input_layout.addWidget(self.exchange_rate_spin)
+        
+        rate_input_layout.addStretch()
+        rate_layout.addLayout(rate_input_layout)
+        
+        rate_group.setLayout(rate_layout)
+        layout.addWidget(rate_group)
         
         # 按钮
         btn_layout = QHBoxLayout()
@@ -357,19 +382,24 @@ class SettingsDialog(QDialog):
     def load_settings(self):
         """加载设置"""
         try:
-            result = self.api_client.get_profit_margin()
-            margin = result.get('profit_margin', 25.0)
+            result = self.api_client.get_all_globals()
+            margin = result.get('default_profit_margin', 25.0)
+            rate = result.get('exchange_rate', 7.24)
             self.profit_margin_spin.setValue(margin)
+            self.exchange_rate_spin.setValue(rate)
         except Exception as e:
-            print(f"加载毛利率失败: {e}")
-            self.profit_margin_spin.setValue(25.0)  # 默认25%
+            print(f"加载设置失败: {e}")
+            self.profit_margin_spin.setValue(25.0)
+            self.exchange_rate_spin.setValue(7.24)
     
     def save_settings(self):
         """保存设置"""
         try:
             margin = self.profit_margin_spin.value()
+            rate = self.exchange_rate_spin.value()
             self.api_client.set_profit_margin(margin)
-            QMessageBox.information(self, "成功", f"毛利率已设置为 {margin}%")
+            self.api_client.set_exchange_rate(rate)
+            QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
             self.accept()
         except Exception as e:
             QMessageBox.warning(self, "错误", f"保存失败: {e}")
@@ -2507,8 +2537,48 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.api_client = api_client
         self.dept_id = dept_id
+        # 全局变量
+        self.default_profit_margin = 25.0  # 默认毛利率
+        self.exchange_rate = 7.24          # 默认汇率
         self.init_ui()
+        self.load_globals()
         self.load_data()
+    
+    def load_globals(self):
+        """加载全局变量"""
+        try:
+            result = self.api_client.get_all_globals()
+            self.default_profit_margin = result.get('default_profit_margin', 25.0)
+            self.exchange_rate = result.get('exchange_rate', 7.24)
+            print(f"[INFO] 全局变量加载: 毛利率={self.default_profit_margin}%, 汇率={self.exchange_rate}")
+        except Exception as e:
+            print(f"[WARN] 加载全局变量失败，使用默认值: {e}")
+    
+    def calculate_estimated_usd_price(self, factory_rmb_price):
+        """计算预估美金报价
+        公式: 预估美金报价 = 工厂人民币价格 × (1 + 毛利率) / 汇率
+        """
+        if not factory_rmb_price or factory_rmb_price <= 0:
+            return 0
+        margin_factor = 1 + (self.default_profit_margin / 100)
+        return factory_rmb_price * margin_factor / self.exchange_rate
+    
+    def calculate_order_profit_margin(self, customer_usd_price, total_rmb_amount, exchange_rate=None):
+        """计算订单预估毛利率
+        公式: 预估毛利率 = 客户美金报价 × 汇率 / 总金额
+        注意: 需要将总金额转为美金计算毛利率
+        """
+        if not exchange_rate:
+            exchange_rate = self.exchange_rate
+        if not customer_usd_price or not total_rmb_amount or total_rmb_amount <= 0:
+            return 0
+        # 客户总美金 = 客户美金报价 × 汇率（折算成人民币）
+        customer_total_rmb = customer_usd_price * exchange_rate
+        # 毛利率 = (客户人民币 - 成本人民币) / 客户人民币
+        if customer_total_rmb <= 0:
+            return 0
+        profit_margin = (customer_total_rmb - total_rmb_amount) / customer_total_rmb * 100
+        return max(0, profit_margin)  # 不返回负数
 
     def init_ui(self):
         self.setWindowTitle(f"PI订单管理系统 - {DEPARTMENT_CONFIG[self.dept_id]['name']}")
@@ -4060,7 +4130,9 @@ class MainWindow(QMainWindow):
     def open_settings(self):
         """打开设置对话框"""
         dialog = SettingsDialog(self.api_client, self)
-        dialog.exec()
+        if dialog.exec():
+            # 刷新全局变量
+            self.load_globals()
     
     def create_order_summary_tab(self):
         """创建订单总表Tab - 汇总所有模块数据"""

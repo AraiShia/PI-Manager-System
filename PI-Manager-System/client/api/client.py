@@ -676,3 +676,15 @@ class ApiClient:
     def set_profit_margin(self, profit_margin: float) -> Dict:
         """设置毛利率"""
         return self.post(f"/settings/profit-margin/set?profit_margin={profit_margin}", {})
+
+    def get_exchange_rate(self) -> Dict:
+        """获取汇率设置"""
+        return self.get("/settings/exchange-rate/get")
+
+    def set_exchange_rate(self, exchange_rate: float) -> Dict:
+        """设置汇率"""
+        return self.post(f"/settings/exchange-rate/set?exchange_rate={exchange_rate}", {})
+
+    def get_all_globals(self) -> Dict:
+        """获取所有全局变量"""
+        return self.get("/settings/all")
