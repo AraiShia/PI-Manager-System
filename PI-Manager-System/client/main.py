@@ -4563,17 +4563,44 @@ class MainWindow(QMainWindow):
         self.order_detail_hint.hide()
         
         # 更新标题显示订单信息
-        items = order.get('items', []) or [{}]
+        items = order.get('items', [])
         currency = order.get('currency', 'USD')
-        title = f"📋 订单: {order.get('order_no', '')} | 客户: {order.get('customer_name', '')} | 共 {len(items)} 个产品 | 总金额: {order.get('total_amount', 0)} {currency}"
+        item_count = len(items) if items else 1
+        title = f"📋 订单: {order.get('order_no', '')} | 客户: {order.get('customer_name', '')} | 共 {item_count} 个产品 | 总金额: {order.get('total_amount', 0)} {currency}"
         self.order_detail_group.setTitle(title)
         
         # 清空详情表格
         self.order_detail_table.setRowCount(0)
         self.order_detail_table.setSortingEnabled(False)
         
+        # 如果没有items，显示订单基本信息作为一行
+        if not items:
+            row = self.order_detail_table.rowCount()
+            self.order_detail_table.insertRow(row)
+            
+            # 显示订单基本信息
+            self.order_detail_table.setItem(row, 0, QTableWidgetItem("📋"))
+            self.order_detail_table.setItem(row, 1, QTableWidgetItem(order.get('order_no', '')))
+            self.order_detail_table.setItem(row, 2, QTableWidgetItem(order.get('customer_name', '')))
+            self.order_detail_table.setItem(row, 3, QTableWidgetItem(str(order.get('total_amount', 0))))
+            self.order_detail_table.setItem(row, 4, QTableWidgetItem(order.get('status', '进行中')))
+            self.order_detail_table.setItem(row, 5, QTableWidgetItem(f"{order.get('customer_prepayment', 0)}"))
+            self.order_detail_table.setItem(row, 6, QTableWidgetItem(f"{order.get('remaining_payment', 0)}"))
+            
+            # 预估计算
+            factory_rmb = order.get('purchase_price', 0) or 0
+            if factory_rmb > 0:
+                estimated_usd = self.calculate_estimated_usd_price(factory_rmb)
+                self.order_detail_table.setItem(row, 15, QTableWidgetItem(f"{estimated_usd:.2f} USD"))
+                total_amount = order.get('total_amount', 0) or 0
+                if total_amount > 0:
+                    profit_margin = self.calculate_order_profit_margin(total_amount, factory_rmb)
+                    self.order_detail_table.setItem(row, 16, QTableWidgetItem(f"{profit_margin:.1f}%"))
+            self.order_detail_table.setSortingEnabled(True)
+            return
+        
         # 为每个产品显示一行
-        for idx, item in enumerate([item for item in items if item]):
+        for idx, item in enumerate(items):
             row = self.order_detail_table.rowCount()
             self.order_detail_table.insertRow(row)
             
