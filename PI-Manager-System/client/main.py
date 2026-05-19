@@ -4526,32 +4526,29 @@ class MainWindow(QMainWindow):
         )
     
     def load_order_summary(self):
-        """加载订单总表数据（使用缓存优化性能）"""
-        print("[INFO] 订单总表: 开始加载数据")
-        
-        # 如果已有缓存数据，直接使用
-        if hasattr(self, '_order_summary_cache') and self._order_summary_cache:
-            print("[INFO] 订单总表: 使用缓存数据")
-            self._on_order_summary_loaded()
-            return
-        
+        """加载订单总表数据"""
+        print("[INFO] 订单总表: 开始加载...")
         self._show_loading_tip("正在加载订单总表...")
         
         def fetch():
             try:
-                # 顺序获取所有数据（更稳定）
+                # 获取PI订单
                 pi_list = self.api_client.get_pi_orders() or []
                 print(f"[INFO] 订单总表: 获取到 {len(pi_list)} 条PI订单")
                 
+                # 获取采购订单
                 purchase_list = self.api_client.get_purchase_orders() or []
                 print(f"[INFO] 订单总表: 获取到 {len(purchase_list)} 条采购订单")
                 
+                # 获取出货记录
                 shipment_list = self.api_client.get_shipments() or []
                 print(f"[INFO] 订单总表: 获取到 {len(shipment_list)} 条出货记录")
                 
+                # 获取客户付款
                 customer_payment_list = self.api_client.get_customer_payments() or []
                 print(f"[INFO] 订单总表: 获取到 {len(customer_payment_list)} 条客户付款")
                 
+                # 获取供应商付款
                 supplier_payment_list = self.api_client.get_supplier_payments() or []
                 print(f"[INFO] 订单总表: 获取到 {len(supplier_payment_list)} 条供应商付款")
                 
@@ -4563,89 +4560,95 @@ class MainWindow(QMainWindow):
                     'supplier_payment_list': supplier_payment_list
                 }
             except Exception as e:
-                print(f"[ERROR] 订单总表: 加载数据失败: {e}")
+                print(f"[ERROR] 订单总表: 获取数据失败: {e}")
                 import traceback
                 traceback.print_exc()
                 return None
         
-        from PySide6.QtCore import QThread
-        
         class LoaderThread(QThread):
-            data_ready = Signal(dict)
+            data_ready = Signal(object)
             
             def run(self):
                 data = fetch()
-                self.data_ready.emit(data if data else {})
+                self.data_ready.emit(data)
         
-        thread = LoaderThread(self)
-        thread.data_ready.connect(self._on_cache_loaded)
-        thread.start()
+        self._loader_thread = LoaderThread(self)
+        self._loader_thread.data_ready.connect(self._on_order_summary_data_ready)
+        self._loader_thread.start()
     
-    def _on_cache_loaded(self, cache_data):
-        """缓存加载完成"""
-        self._order_summary_cache = cache_data
-        self._on_order_summary_loaded()
-    
-    def _on_order_summary_loaded(self):
-        """订单总表数据加载完成"""
-        print("[INFO] 订单总表: 处理数据...")
+    def _on_order_summary_data_ready(self, data):
+        """数据加载完成回调"""
+        print("[INFO] 订单总表: 数据加载完成，开始处理...")
+        
+        if data is None:
+            print("[ERROR] 订单总表: 数据为空")
+            self._hide_loading_tip()
+            return
         
         try:
-            # 使用缓存的数据（兼容两种情况）
-            cache = getattr(self, '_order_summary_cache', None)
-            if not cache:
-                # 如果缓存为空，从API获取
-                print("[WARN] 订单总表: 缓存为空，重新获取数据")
-                self.load_order_summary()
-                return
-            
-            pi_list = cache.get('pi_list') or []
-            purchase_list = cache.get('purchase_list') or []
-            shipment_list = cache.get('shipment_list') or []
-            customer_payment_list = cache.get('customer_payment_list') or []
-            supplier_payment_list = cache.get('supplier_payment_list') or []
+            # 保存缓存
+            self._order_summary_cache = data
+            pi_list = data.get('pi_list', [])
+            purchase_list = data.get('purchase_list', [])
+            shipment_list = data.get('shipment_list', [])
+            customer_payment_list = data.get('customer_payment_list', [])
+            supplier_payment_list = data.get('supplier_payment_list', [])
             
             print(f"[INFO] 订单总表: 处理 {len(pi_list)} 条PI订单")
             
-            # 获取客户和产品映射（用于快速查找）
+            # 获取客户、产品、供应商映射
             customers_raw = self.api_client.get_customers() or []
             products_raw = self.api_client.get_products() or []
             suppliers_raw = self.api_client.get_suppliers() or []
             
-            customers = {c['id']: c for c in customers_raw}
-            products = {p['id']: p for p in products_raw}
-            suppliers = {s['id']: s for s in suppliers_raw}
+            customers = {c.get('id'): c for c in customers_raw if c.get('id')}
+            products = {p.get('id'): p for p in products_raw if p.get('id')}
+            suppliers = {s.get('id'): s for s in suppliers_raw if s.get('id')}
             
-            print(f"[INFO] 订单总表: {len(customers)} 客户, {len(products)} 产品, {len(suppliers)} 供应商")
+            print(f"[INFO] 订单总表: 映射 {len(customers)} 客户, {len(products)} 产品, {len(suppliers)} 供应商")
             
-            # 构建订单总表数据（前端计算）
+            # 构建订单列表
             orders = []
             for pi in pi_list:
-                # 获取PI的详细信息
-                pi_detail = self.api_client.get_pi_detail(pi.get('id')) if pi.get('id') else None
-                order = self._build_order_summary_row(
-                    pi_detail or pi, 
-                    purchase_list, 
-                    shipment_list, 
-                    customer_payment_list, 
-                    supplier_payment_list, 
-                    customers, 
-                    products,
-                    suppliers
-                )
-                # 前端计算预估美金报价
-                self._calculate_order_estimates(order)
-                orders.append(order)
+                try:
+                    # 获取PI详情
+                    pi_id = pi.get('id')
+                    pi_detail = None
+                    if pi_id:
+                        try:
+                            pi_detail = self.api_client.get_pi_detail(pi_id)
+                        except Exception as e:
+                            print(f"[WARN] 获取PI详情失败: {e}")
+                    
+                    order = self._build_order_summary_row(
+                        pi_detail or pi, 
+                        purchase_list, 
+                        shipment_list, 
+                        customer_payment_list, 
+                        supplier_payment_list, 
+                        customers, 
+                        products,
+                        suppliers
+                    )
+                    self._calculate_order_estimates(order)
+                    orders.append(order)
+                except Exception as e:
+                    print(f"[WARN] 构建订单行失败: {e}")
+                    continue
             
-            print(f"[INFO] 订单总表: 构建完成, 共 {len(orders)} 条数据")
+            print(f"[INFO] 订单总表: 构建完成, 共 {len(orders)} 条")
+            
+            # 更新UI（在主线程）
             self._order_summary_orders = orders
             self._order_summary_filtered = orders
             self._populate_order_list_table(orders)
-            self._hide_loading_tip()
+            
             self._order_summary_status.setText(f"共 {len(orders)} 条订单")
-            print("[INFO] 订单总表: UI更新完成")
+            self._hide_loading_tip()
+            print("[INFO] 订单总表: 加载完成")
+            
         except Exception as e:
-            print(f"[ERROR] 订单总表: 处理数据失败: {e}")
+            print(f"[ERROR] 订单总表: 处理失败: {e}")
             import traceback
             traceback.print_exc()
             self._hide_loading_tip()
