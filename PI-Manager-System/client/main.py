@@ -275,6 +275,180 @@ class LoginWindow(QDialog):
         return self.selected_dept
 
 
+class FieldEditDialog(QDialog):
+    """字段编辑对话框"""
+    def __init__(self, field_name, current_value, parent=None):
+        super().__init__(parent)
+        self.field_name = field_name
+        self.new_value = current_value
+        self.setWindowTitle(f"编辑: {field_name}")
+        self.setMinimumWidth(400)
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # 字段名标签
+        label = QLabel(f"字段: {self.field_name}")
+        label.setFont(QFont("", 10, QFont.Weight.Bold))
+        layout.addWidget(label)
+        
+        # 编辑框
+        self.editor = QTextEdit()
+        self.editor.setPlainText(str(self.new_value))
+        self.editor.setMinimumHeight(100)
+        layout.addWidget(self.editor)
+        
+        # 按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setFixedWidth(80)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("保存")
+        save_btn.setFixedWidth(80)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        """)
+        save_btn.clicked.connect(self._on_save)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+    
+    def _on_save(self):
+        self.new_value = self.editor.toPlainText()
+        self.accept()
+    
+    def get_value(self):
+        return self.new_value
+
+
+class OrderEditDialog(QDialog):
+    """订单编辑对话框"""
+    def __init__(self, order, parent=None):
+        super().__init__(parent)
+        self.order = order
+        self.updated_order = order.copy()
+        self.setWindowTitle(f"编辑订单: {order.get('order_no', '新建订单')}")
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(500)
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # 可编辑字段列表
+        editable_fields = [
+            ("ORDER NO.", "order_no", "line"),
+            ("客户", "customer_name", "line"),
+            ("订单日期", "order_date", "line"),
+            ("客户产品编号", "customer_product_code", "line"),
+            ("OE号", "oe_number", "line"),
+            ("产品名称", "product_name", "line"),
+            ("客户型号", "customer_model", "line"),
+            ("数量", "quantity", "number"),
+            ("单价", "unit_price", "number"),
+            ("总金额", "total_amount", "number"),
+            ("客户预付款", "customer_prepayment", "number"),
+            ("待收尾款", "remaining_payment", "number"),
+            ("采购价格", "purchase_price", "number"),
+            ("运费", "shipping_fee", "number"),
+            ("杂费", "misc_fee", "number"),
+            ("工厂简称", "supplier_name", "line"),
+            ("店铺链接", "supplier_link", "line"),
+            ("交货日期", "delivery_date", "line"),
+            ("客户需求备注", "customer_requirement", "text"),
+            ("客户最新回复", "customer_reply", "text"),
+            ("品牌", "brand", "line"),
+            ("开票情况", "invoice_status", "line"),
+        ]
+        
+        # 创建滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_layout = QFormLayout(scroll_widget)
+        scroll_layout.setLabelAlignment(Qt.AlignRight)
+        scroll_layout.setHorizontalSpacing(20)
+        scroll_layout.setVerticalSpacing(10)
+        
+        self.editors = {}
+        for label_text, field_key, field_type in editable_fields:
+            value = str(self.order.get(field_key, ''))
+            
+            if field_type == "line":
+                editor = QLineEdit(value)
+                editor.setFixedHeight(30)
+            elif field_type == "number":
+                editor = QDoubleSpinBox()
+                editor.setRange(0, 99999999)
+                editor.setDecimals(2)
+                try:
+                    editor.setValue(float(value) if value else 0)
+                except:
+                    editor.setValue(0)
+            elif field_type == "text":
+                editor = QTextEdit(value)
+                editor.setMinimumHeight(60)
+                editor.setMaximumHeight(100)
+            
+            self.editors[field_key] = editor
+            scroll_layout.addRow(f"{label_text}:", editor)
+        
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+        
+        # 按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setFixedWidth(80)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("保存")
+        save_btn.setFixedWidth(80)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #059669; }
+        """)
+        save_btn.clicked.connect(self._on_save)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+    
+    def _on_save(self):
+        # 更新订单数据
+        for field_key, editor in self.editors.items():
+            if isinstance(editor, QLineEdit):
+                self.updated_order[field_key] = editor.text()
+            elif isinstance(editor, QDoubleSpinBox):
+                self.updated_order[field_key] = editor.value()
+            elif isinstance(editor, QTextEdit):
+                self.updated_order[field_key] = editor.toPlainText()
+        self.accept()
+    
+    def get_updated_order(self):
+        return self.updated_order
+
+
 class SettingsDialog(QDialog):
     """系统设置对话框"""
     def __init__(self, api_client, parent=None):
@@ -4211,6 +4385,8 @@ class MainWindow(QMainWindow):
         self.order_detail_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.order_detail_table.setAlternatingRowColors(True)
         self.order_detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # 双击编辑
+        self.order_detail_table.cellDoubleClicked.connect(self._on_order_detail_double_click)
         self.order_detail_table.setStyleSheet("""
             QTableWidget {
                 background-color: #f9fafb;
@@ -4282,6 +4458,8 @@ class MainWindow(QMainWindow):
         self.order_list_table.setColumnWidth(5, 80)   # 状态列
         # 绑定点击事件
         self.order_list_table.cellClicked.connect(self._on_order_list_click)
+        # 双击编辑
+        self.order_list_table.cellDoubleClicked.connect(self._on_order_list_double_click)
         list_layout.addWidget(self.order_list_table)
         
         # 状态栏
@@ -4317,6 +4495,67 @@ class MainWindow(QMainWindow):
         order = self._order_summary_filtered[row]
         self._selected_order_index = row
         self._show_order_detail(order)
+    
+    def _on_order_list_double_click(self, row, column):
+        """双击订单列表行，打开编辑对话框"""
+        if row < 0 or row >= len(self._order_summary_filtered):
+            return
+        
+        # 跳过选择列
+        if column == 0:
+            return
+        
+        order = self._order_summary_filtered[row]
+        self._selected_order_index = row
+        self._open_order_edit_dialog(order)
+    
+    def _on_order_detail_double_click(self, row, column):
+        """双击订单详情单元格，打开编辑对话框"""
+        if self._selected_order_index is None:
+            QMessageBox.information(self, "提示", "请先选择一个订单")
+            return
+        
+        order = self._order_summary_filtered[self._selected_order_index]
+        # 获取列名
+        headers = [self.order_detail_table.horizontalHeaderItem(i).text() 
+                   for i in range(self.order_detail_table.columnCount())]
+        if column < len(headers):
+            field_name = headers[column]
+            current_value = self.order_detail_table.item(row, column).text() if self.order_detail_table.item(row, column) else ""
+            self._open_field_edit_dialog(order, field_name, current_value, row, column)
+    
+    def _open_order_edit_dialog(self, order):
+        """打开订单编辑对话框"""
+        dialog = OrderEditDialog(order, self)
+        if dialog.exec():
+            # 保存编辑后的数据
+            updated_order = dialog.get_updated_order()
+            # 更新列表中的数据
+            idx = self._selected_order_index
+            if idx is not None and idx < len(self._order_summary_filtered):
+                self._order_summary_filtered[idx] = updated_order
+                # 如果在原始列表中也存在
+                pi_id = updated_order.get('id')
+                for i, o in enumerate(self._order_summary_orders):
+                    if o.get('id') == pi_id:
+                        self._order_summary_orders[i] = updated_order
+                        break
+                # 刷新显示
+                self._populate_order_list_table(self._order_summary_filtered)
+                self._show_order_detail(updated_order)
+                self._order_summary_status.setText(f"已更新订单: {updated_order.get('order_no', '')}")
+    
+    def _open_field_edit_dialog(self, order, field_name, current_value, row, column):
+        """打开字段编辑对话框"""
+        dialog = FieldEditDialog(field_name, current_value, self)
+        if dialog.exec():
+            new_value = dialog.get_value()
+            # 更新订单数据
+            order[field_name] = new_value
+            # 刷新详情显示
+            self.order_detail_table.setItem(row, column, QTableWidgetItem(str(new_value)))
+            # 更新列表
+            self._order_summary_filtered[self._selected_order_index] = order
     
     def _show_order_detail(self, order):
         """显示订单详情 - 使用原有的41列完整格式"""
