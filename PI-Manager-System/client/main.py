@@ -398,10 +398,28 @@ class SettingsDialog(QDialog):
         try:
             margin = self.profit_margin_spin.value()
             rate = self.exchange_rate_spin.value()
-            self.api_client.set_profit_margin(margin)
-            self.api_client.set_exchange_rate(rate)
-            QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
-            self.accept()
+            # 使用单个请求保存所有设置
+            # 直接调用requests避免API client封装开销
+            import requests
+            try:
+                # 保存毛利率
+                requests.post(
+                    f"{self.api_client.base_url}/api/settings/profit-margin/set?profit_margin={margin}",
+                    timeout=3
+                )
+                # 保存汇率
+                requests.post(
+                    f"{self.api_client.base_url}/api/settings/exchange-rate/set?exchange_rate={rate}",
+                    timeout=3
+                )
+                QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
+                self.accept()
+            except Exception as api_err:
+                # 回退到API client
+                self.api_client.set_profit_margin(margin)
+                self.api_client.set_exchange_rate(rate)
+                QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
+                self.accept()
         except Exception as e:
             QMessageBox.warning(self, "错误", f"保存失败: {e}")
 
