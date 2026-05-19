@@ -4529,7 +4529,7 @@ class MainWindow(QMainWindow):
         """加载订单总表数据（使用缓存优化性能）"""
         print("[INFO] 订单总表: 开始加载数据")
         
-        # 检查缓存
+        # 如果已有缓存数据，直接使用
         if hasattr(self, '_order_summary_cache') and self._order_summary_cache:
             print("[INFO] 订单总表: 使用缓存数据")
             self._on_order_summary_loaded()
@@ -4539,31 +4539,29 @@ class MainWindow(QMainWindow):
         
         def fetch():
             try:
-                # 并发获取所有数据
-                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-                    pi_future = executor.submit(self.api_client.get_pi_orders)
-                    purchase_future = executor.submit(self.api_client.get_purchase_orders)
-                    shipment_future = executor.submit(self.api_client.get_shipments)
-                    customer_pay_future = executor.submit(self.api_client.get_customer_payments)
-                    supplier_pay_future = executor.submit(self.api_client.get_supplier_payments)
-                    
-                    # 获取结果
-                    pi_list = pi_future.result() or []
-                    purchase_list = purchase_future.result() or []
-                    shipment_list = shipment_future.result() or []
-                    customer_payment_list = customer_pay_future.result() or []
-                    supplier_payment_list = supplier_pay_future.result() or []
+                # 顺序获取所有数据（更稳定）
+                pi_list = self.api_client.get_pi_orders() or []
+                print(f"[INFO] 订单总表: 获取到 {len(pi_list)} 条PI订单")
                 
-                # 缓存数据
-                self._order_summary_cache = {
+                purchase_list = self.api_client.get_purchase_orders() or []
+                print(f"[INFO] 订单总表: 获取到 {len(purchase_list)} 条采购订单")
+                
+                shipment_list = self.api_client.get_shipments() or []
+                print(f"[INFO] 订单总表: 获取到 {len(shipment_list)} 条出货记录")
+                
+                customer_payment_list = self.api_client.get_customer_payments() or []
+                print(f"[INFO] 订单总表: 获取到 {len(customer_payment_list)} 条客户付款")
+                
+                supplier_payment_list = self.api_client.get_supplier_payments() or []
+                print(f"[INFO] 订单总表: 获取到 {len(supplier_payment_list)} 条供应商付款")
+                
+                return {
                     'pi_list': pi_list,
                     'purchase_list': purchase_list,
                     'shipment_list': shipment_list,
                     'customer_payment_list': customer_payment_list,
                     'supplier_payment_list': supplier_payment_list
                 }
-                
-                return self._order_summary_cache
             except Exception as e:
                 print(f"[ERROR] 订单总表: 加载数据失败: {e}")
                 import traceback
@@ -4573,24 +4571,34 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QThread
         
         class LoaderThread(QThread):
-            def __init__(self, parent=None):
-                super().__init__(parent)
-                self.data = None
+            data_ready = Signal(dict)
             
             def run(self):
-                self.data = fetch()
+                data = fetch()
+                self.data_ready.emit(data if data else {})
         
         thread = LoaderThread(self)
-        thread.finished.connect(self._on_order_summary_loaded)
+        thread.data_ready.connect(self._on_cache_loaded)
         thread.start()
+    
+    def _on_cache_loaded(self, cache_data):
+        """缓存加载完成"""
+        self._order_summary_cache = cache_data
+        self._on_order_summary_loaded()
     
     def _on_order_summary_loaded(self):
         """订单总表数据加载完成"""
         print("[INFO] 订单总表: 处理数据...")
         
         try:
-            # 使用缓存的数据
-            cache = getattr(self, '_order_summary_cache', None) or {}
+            # 使用缓存的数据（兼容两种情况）
+            cache = getattr(self, '_order_summary_cache', None)
+            if not cache:
+                # 如果缓存为空，从API获取
+                print("[WARN] 订单总表: 缓存为空，重新获取数据")
+                self.load_order_summary()
+                return
+            
             pi_list = cache.get('pi_list') or []
             purchase_list = cache.get('purchase_list') or []
             shipment_list = cache.get('shipment_list') or []
