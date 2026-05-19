@@ -4364,7 +4364,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(toolbar)
         
         # ==================== 上半部分：订单详情 ====================
-        detail_group = QGroupBox("📋 订单详情（点击下方列表查看）")
+        self.order_detail_group = QGroupBox("📋 订单详情（点击下方列表查看）")
         detail_layout = QVBoxLayout()
         
         # 详情表格 - 保持原有的41列完整格式
@@ -4402,8 +4402,8 @@ class MainWindow(QMainWindow):
         self.order_detail_hint.setAlignment(Qt.AlignCenter)
         detail_layout.addWidget(self.order_detail_hint)
         
-        detail_group.setLayout(detail_layout)
-        layout.addWidget(detail_group)
+        self.order_detail_group.setLayout(detail_layout)
+        layout.addWidget(self.order_detail_group)
         
         # ==================== 分割线 ====================
         splitter = QFrame()
@@ -4562,41 +4562,18 @@ class MainWindow(QMainWindow):
         """显示订单详情 - 支持多产品显示"""
         self.order_detail_hint.hide()
         
+        # 更新标题显示订单信息
+        items = order.get('items', []) or [{}]
+        currency = order.get('currency', 'USD')
+        title = f"📋 订单: {order.get('order_no', '')} | 客户: {order.get('customer_name', '')} | 共 {len(items)} 个产品 | 总金额: {order.get('total_amount', 0)} {currency}"
+        self.order_detail_group.setTitle(title)
+        
         # 清空详情表格
         self.order_detail_table.setRowCount(0)
         self.order_detail_table.setSortingEnabled(False)
         
-        # 获取该订单下的所有产品
-        items = order.get('items', [])
-        if not items:
-            # 如果没有items，创建一个空行显示订单信息
-            items = [{}]
-        
-        # 显示订单头信息（第一行）
-        order_row = self.order_detail_table.rowCount()
-        self.order_detail_table.insertRow(order_row)
-        
-        # 订单头信息 - 第一列放固定内容，后面的列显示汇总信息
-        self.order_detail_table.setItem(order_row, 0, QTableWidgetItem("📋"))  # 固定标记
-        order_info_item = QTableWidgetItem(f"订单: {order.get('order_no', '')}")
-        order_info_item.setBackground(QBrush(QColor("#dbeafe")))
-        order_info_item.setFont(QFont("", 10, QFont.Weight.Bold))
-        self.order_detail_table.setItem(order_row, 1, order_info_item)
-        
-        # 客户和状态
-        self.order_detail_table.setItem(order_row, 2, QTableWidgetItem(f"客户: {order.get('customer_name', '')}"))
-        self.order_detail_table.setItem(order_row, 3, QTableWidgetItem(f"产品数: {len(items)}"))
-        self.order_detail_table.setItem(order_row, 4, QTableWidgetItem(f"状态: {order.get('status', '进行中')}"))
-        
-        # 订单级别汇总金额
-        total_amount = order.get('total_amount', 0) or 0
-        currency = order.get('currency', 'USD')
-        self.order_detail_table.setItem(order_row, 5, QTableWidgetItem(f"总金额: {total_amount} {currency}"))
-        self.order_detail_table.setItem(order_row, 6, QTableWidgetItem(f"预付款: {order.get('customer_prepayment', 0)}"))
-        self.order_detail_table.setItem(order_row, 7, QTableWidgetItem(f"尾款: {order.get('remaining_payment', 0)}"))
-        
         # 为每个产品显示一行
-        for idx, item in enumerate(items):
+        for idx, item in enumerate([item for item in items if item]):
             row = self.order_detail_table.rowCount()
             self.order_detail_table.insertRow(row)
             
