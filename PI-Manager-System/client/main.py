@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 PI Manager - 客户端主窗口
-所有导入语句统一放在文件头部
 """
 import sys
 import os
@@ -32,7 +31,9 @@ from PySide6.QtGui import (
     QAction, QPainter
 )
 
-# 本地模块
+# 本地模块（添加到path）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from cache_manager import cache_manager, CACHE_KEYS, set_user, invalidate_cache
 from api.client import ApiClient
 from api.cached_client import CachedApiClient
@@ -46,19 +47,13 @@ from widgets.order_summary_dialogs import (
     CustomerReplyDialog
 )
 
-# 测试文件导入（可选）
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 测试模块（可选）
 try:
     from test_customer_reply import CustomerReplyTester
     HAS_CUSTOMER_REPLY_TEST = True
 except ImportError:
     HAS_CUSTOMER_REPLY_TEST = False
     CustomerReplyTester = None
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'config'))
 
 # ============================================
 # 全局常量和配置
@@ -116,15 +111,6 @@ CITY_CODE_MAP = {
     "71": {"台北": "1", "高雄": "2", "台中": "3", "台南": "4", "新北": "5", "桃园": "6"},
     "81": {"香港": "1"}, "82": {"澳门": "1"}
 }
-
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStackedWidget, QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QFormLayout, QLineEdit, QTextEdit, QComboBox, QHeaderView, QAbstractItemView, QGridLayout, QCheckBox, QGroupBox, QFileDialog, QProgressDialog, QTabWidget, QScrollArea, QDateEdit, QMenu, QFrame
-from PySide6.QtCore import Qt, QTimer, QDate
-from PySide6.QtGui import QIcon, QPalette, QColor, QFont, QFontDatabase, QBrush, QPixmap, QImage
-from api.client import ApiClient
-from api.cached_client import CachedApiClient
-from config import Config
-from product_categories import get_category_options, get_category_code, get_category_name
-from widgets.action_bar import ActionBarFactory
 
 def get_font(size=10, weight=QFont.Weight.Normal):
     font = QFont()
