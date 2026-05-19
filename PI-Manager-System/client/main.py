@@ -3995,16 +3995,56 @@ class MainWindow(QMainWindow):
         purchase_id_for_supplier = purchase.get('id') if purchase else None
         supplier_payment = next((sp for sp in supplier_payment_list if sp.get('purchase_id') == purchase_id_for_supplier), None)
         
+        # 获取产品OE列表
+        oe_list = []
+        try:
+            if product_id:
+                oe_list = self.api_client.get_product_oes(product_id) or []
+                print(f"[DEBUG] 订单总表: 获取产品OE列表，共{len(oe_list)}个")
+        except Exception as e:
+            print(f"[DEBUG] 订单总表: 获取OE列表失败: {e}")
+        
+        # 获取产品-客户关联信息
+        customer_product_info = None
+        try:
+            if product_id and customer_id:
+                customer_product_info = self.api_client.get_product_customer(product_id, customer_id)
+                print(f"[DEBUG] 订单总表: 获取客户产品关联: {customer_product_info}")
+        except Exception as e:
+            print(f"[DEBUG] 订单总表: 获取客户产品关联失败: {e}")
+        
         # 状态判断
         is_completed = pi.get('status') == 4
         print(f"[DEBUG] 订单总表: PI状态={pi.get('status')}, 是否完成={is_completed}")
+        
+        # 构建OE显示文本
+        primary_oe = next((oe for oe in oe_list if oe.get('is_primary')), None)
+        if primary_oe:
+            display_oe = primary_oe.get('oe_number', '')
+        elif oe_list:
+            display_oe = "多OE号"  # 有多个OE但没有主OE
+        else:
+            display_oe = oe_number or ''
+        
+        # 构建客户产品编号显示（取客户号后面的字符）
+        customer_code_display = customer_code
+        if customer_product_info:
+            full_code = customer_product_info.get('customer_product_code', '')
+            if full_code:
+                # 去掉客户号前缀
+                customer_code_display = full_code
+        else:
+            customer_code_display = customer_code
         
         # 构建订单数据 - 包含编辑所需的所有字段
         order_data = {
             'order_date': order_date,
             'order_no': order_no,
-            'customer_product_code': customer_code,
-            'oe_number': oe_number or (product.get('oe_number', '') if product else ''),
+            'customer_product_code': customer_code_display,  # 显示用
+            'customer_product_code_full': customer_product_info.get('customer_product_code', '') if customer_product_info else '',
+            'oe_number': display_oe,  # 显示用
+            'oe_number_list': oe_list,  # 完整OE列表，用于弹窗显示
+            'oe_count': len(oe_list),  # OE数量
             'customer_requirement': remark,
             # 产品名使用 product_code 或 detail_desc
             'product_name': product.get('product_code', '') if product else (product.get('detail_desc', '') if product else ''),
@@ -4085,8 +4125,28 @@ class MainWindow(QMainWindow):
             # 2: 客户产品编号
             self.order_summary_table.setItem(row, 2, QTableWidgetItem(order['customer_product_code']))
             
-            # 3: OE号
-            self.order_summary_table.setItem(row, 3, QTableWidgetItem(order['oe_number']))
+            # 3: OE号 - 根据OE数量决定显示方式
+            oe_count = order.get('oe_count', 0)
+            if oe_count > 1:
+                # 多个OE号，显示可点击的按钮样式
+                from PySide6.QtWidgets import QPushButton, QWidget, QHBoxLayout
+                btn = QPushButton("多OE号")
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3b82f6;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-size: 11px;
+                    }
+                    QPushButton:hover { background-color: #2563eb; }
+                """)
+                btn.clicked.connect(lambda checked, r=row: self._show_oe_list_dialog(r))
+                self.order_summary_table.setCellWidget(row, 3, btn)
+            else:
+                # 单个OE号，直接显示
+                self.order_summary_table.setItem(row, 3, QTableWidgetItem(order['oe_number']))
             
             # 4: 客户需求备注
             self.order_summary_table.setItem(row, 4, QTableWidgetItem(order['customer_requirement']))
@@ -4380,6 +4440,21 @@ class MainWindow(QMainWindow):
         # 更新存储的数据
         if hasattr(self, '_order_summary_orders') and row < len(self._order_summary_orders):
             self._order_summary_orders[row]['customer_reply'] = reply_data.get('reply_content', '')
+    
+    def _show_oe_list_dialog(self, row):
+        """显示OE号列表弹窗"""
+        if not hasattr(self, '_order_summary_orders') or row >= len(self._order_summary_orders):
+            return
+        
+        order_data = self._order_summary_orders[row]
+        oe_list = order_data.get('oe_number_list', [])
+        product_id = order_data.get('product_id')
+        pi_no = order_data.get('order_no', '')
+        
+        from widgets.product_oe_dialog import ProductOEDialog
+        
+        dialog = ProductOEDialog(product_id, oe_list, self.api_client, self)
+        dialog.exec()
     
     def export_order_summary(self):
         """导出订单总表为Excel"""
