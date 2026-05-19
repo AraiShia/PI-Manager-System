@@ -38,8 +38,10 @@ class ProductCustomerResponse(ProductCustomerBase):
         from_attributes = True
 
 
-class ProductCustomerDetailResponse(ProductCustomerResponse):
-    """包含产品信息的响应"""
-    product_code: Optional[str] = None
-    product_name: Optional[str] = None
-    customer_name: Optional[str] = None
+class ProductCustomerDetailResponse(ProductCustomerBase):
+    """包含客户信息的响应"""
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    customer_code: Optional[str] = None  # 客户编号
+    customer_name: Optional[str] = None  # 客户名称

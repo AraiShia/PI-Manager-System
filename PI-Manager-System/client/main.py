@@ -919,19 +919,16 @@ class ProductDialog(QDialog):
         """刷新客户产品列表"""
         self.pc_table.setRowCount(len(self.product_customers))
         for row, pc in enumerate(self.product_customers):
-            # 客户名
-            customer_id = pc.get('customer_id')
-            customer_name = ""
-            if self.customers:
-                for c in self.customers:
-                    if c.get('id') == customer_id:
-                        customer_name = c.get('customer_name', '')
-                        break
+            # 客户名（直接从API返回的customer_name获取，不再本地查找）
+            customer_name = pc.get('customer_name', pc.get('customer_code', ''))
             self.pc_table.setItem(row, 0, QTableWidgetItem(customer_name))
             self.pc_table.setItem(row, 1, QTableWidgetItem(pc.get('customer_product_code', '')))
             self.pc_table.setItem(row, 2, QTableWidgetItem(pc.get('customer_oe_number', '')))
-            self.pc_table.setItem(row, 3, QTableWidgetItem(str(pc.get('price_usd', ''))))
-            self.pc_table.setItem(row, 4, QTableWidgetItem(str(pc.get('price_rmb', ''))))
+            # 价格显示
+            price_usd = pc.get('price_usd')
+            price_rmb = pc.get('price_rmb')
+            self.pc_table.setItem(row, 3, QTableWidgetItem(str(price_usd) if price_usd else '-'))
+            self.pc_table.setItem(row, 4, QTableWidgetItem(str(price_rmb) if price_rmb else '-'))
             
             # 操作按钮
             action_widget = QWidget()
