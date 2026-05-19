@@ -4754,14 +4754,20 @@ class MainWindow(QMainWindow):
             row = self.order_detail_table.rowCount()
             self.order_detail_table.insertRow(row)
             
-            # 显示订单基本信息
-            self.order_detail_table.setItem(row, 0, QTableWidgetItem("📋"))
-            self.order_detail_table.setItem(row, 1, QTableWidgetItem(order.get('order_no', '')))
-            self.order_detail_table.setItem(row, 2, QTableWidgetItem(order.get('customer_name', '')))
-            self.order_detail_table.setItem(row, 3, QTableWidgetItem(str(order.get('total_amount', 0))))
-            self.order_detail_table.setItem(row, 4, QTableWidgetItem(order.get('status', '进行中')))
-            self.order_detail_table.setItem(row, 5, QTableWidgetItem(f"{order.get('customer_prepayment', 0)}"))
-            self.order_detail_table.setItem(row, 6, QTableWidgetItem(f"{order.get('remaining_payment', 0)}"))
+            # 显示订单基本信息（按表头顺序对应）
+            self.order_detail_table.setItem(row, 0, QTableWidgetItem(order.get('order_date', '')))      # 订单日期
+            self.order_detail_table.setItem(row, 1, QTableWidgetItem(order.get('order_no', '')))        # ORDER NO.
+            self.order_detail_table.setItem(row, 2, QTableWidgetItem(order.get('customer_name', '')))  # 客户（对应标题：客户产品编号）
+            self.order_detail_table.setItem(row, 3, QTableWidgetItem(order.get('oe_number', '')))       # OE号
+            self.order_detail_table.setItem(row, 4, QTableWidgetItem(order.get('customer_requirement', '')))  # 客户需求备注
+            self.order_detail_table.setItem(row, 5, QTableWidgetItem(order.get('product_name', '')))     # 产品名称
+            # 列6是图片列，跳过
+            self.order_detail_table.setItem(row, 7, QTableWidgetItem(order.get('customer_model', '')))    # 客户型号
+            self.order_detail_table.setItem(row, 9, QTableWidgetItem(str(order.get('quantity', 0))))      # 数量
+            self.order_detail_table.setItem(row, 10, QTableWidgetItem(str(order.get('unit_price', 0))))   # 报价
+            self.order_detail_table.setItem(row, 11, QTableWidgetItem(str(order.get('total_amount', 0))))  # 合计金额
+            self.order_detail_table.setItem(row, 13, QTableWidgetItem(str(order.get('customer_prepayment', 0))))  # 客户预付款
+            self.order_detail_table.setItem(row, 14, QTableWidgetItem(str(order.get('remaining_payment', 0))))  # 待收尾款
             
             # 预估计算
             factory_rmb = order.get('purchase_price', 0) or 0
@@ -4772,6 +4778,11 @@ class MainWindow(QMainWindow):
                 if total_amount > 0:
                     profit_margin = self.calculate_order_profit_margin(total_amount, factory_rmb)
                     self.order_detail_table.setItem(row, 16, QTableWidgetItem(f"{profit_margin:.1f}%"))
+            self.order_detail_table.setItem(row, 17, QTableWidgetItem(str(factory_rmb)))  # 采购价格
+            self.order_detail_table.setItem(row, 21, QTableWidgetItem(order.get('supplier_name', '')))  # 工厂简称
+            self.order_detail_table.setItem(row, 39, QTableWidgetItem(order.get('brand', '')))  # 品牌
+            self.order_detail_table.setItem(row, 40, QTableWidgetItem(order.get('invoice_status', '未上传')))  # 开票情况
+            
             self.order_detail_table.setSortingEnabled(True)
             return
         
@@ -4780,17 +4791,15 @@ class MainWindow(QMainWindow):
             row = self.order_detail_table.rowCount()
             self.order_detail_table.insertRow(row)
             
-            # 产品序号
+            # 产品序号 - 列0显示序号标记
             self.order_detail_table.setItem(row, 0, QTableWidgetItem(f"#{idx + 1}"))
             
-            # 产品基本信息
+            # 产品基本信息（按表头顺序对应）
             self.order_detail_table.setItem(row, 1, QTableWidgetItem(order.get('order_no', '')))                    # ORDER NO.
             self.order_detail_table.setItem(row, 2, QTableWidgetItem(item.get('customer_code', '')))               # 客户产品编号
-            self.order_detail_table.setItem(row, 3, QTableWidgetItem(item.get('oe_number', '')))                  # OE号
-            self.order_detail_table.setItem(row, 4, QTableWidgetItem(item.get('remark', '')))                     # 客户需求备注
-            
-            # 产品名称
-            self.order_detail_table.setItem(row, 5, QTableWidgetItem(item.get('product_name', '')))
+            self.order_detail_table.setItem(row, 3, QTableWidgetItem(item.get('oe_number', '')))                     # OE号
+            self.order_detail_table.setItem(row, 4, QTableWidgetItem(item.get('remark', '')))                       # 客户需求备注
+            self.order_detail_table.setItem(row, 5, QTableWidgetItem(item.get('product_name', '')))                 # 产品名称
             
             # 图片列
             from PySide6.QtWidgets import QLabel
