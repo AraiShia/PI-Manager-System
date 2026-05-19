@@ -4166,20 +4166,35 @@ class MainWindow(QMainWindow):
             self.load_globals()
     
     def create_order_summary_tab(self):
-        """创建订单总表Tab - 汇总所有模块数据"""
+        """创建订单总表Tab - 汇总所有模块数据（上下两部分布局）"""
         widget = QWidget()
         layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(15, 15, 15, 15)
         
-        # 工具栏
+        # ==================== 工具栏 ====================
         toolbar = QHBoxLayout()
-        title = QLabel("订单管理总表")
+        title = QLabel("📊 订单管理总表")
         title.setFont(get_font(14, QFont.Weight.Bold))
         toolbar.addWidget(title)
         toolbar.addStretch()
         
+        # 导入按钮
+        import_btn = QPushButton("📥 导入")
+        import_btn.clicked.connect(self._import_order_summary)
+        import_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover { background-color: #4f46e5; }
+        """)
+        toolbar.addWidget(import_btn)
+        
         # 刷新按钮
-        refresh_btn = QPushButton("🔄 刷新数据")
+        refresh_btn = QPushButton("🔄 刷新")
         refresh_btn.clicked.connect(self.load_order_summary)
         refresh_btn.setStyleSheet("""
             QPushButton {
@@ -4194,7 +4209,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(refresh_btn)
         
         # 导出按钮
-        export_btn = QPushButton("📥 导出Excel")
+        export_btn = QPushButton("📤 导出")
         export_btn.clicked.connect(self.export_order_summary)
         export_btn.setStyleSheet("""
             QPushButton {
@@ -4208,28 +4223,54 @@ class MainWindow(QMainWindow):
         """)
         toolbar.addWidget(export_btn)
         
-        # 测试客户回复API按钮（仅开发调试用）
-        if HAS_CUSTOMER_REPLY_TEST and CustomerReplyTester:
-            test_btn = QPushButton("🧪 测试客户回复")
-            test_btn.clicked.connect(self._test_customer_reply)
-            test_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #8b5cf6;
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    padding: 8px 16px;
-                }
-                QPushButton:hover { background-color: #7c3aed; }
-            """)
-            toolbar.addWidget(test_btn)
-        
         layout.addLayout(toolbar)
+        
+        # ==================== 上半部分：订单详情 ====================
+        detail_group = QGroupBox("📋 订单详情（点击下方列表查看）")
+        detail_layout = QVBoxLayout()
+        
+        # 详情表格 - 显示选中订单的完整信息
+        self.order_detail_table = QTableWidget()
+        self.order_detail_table.setColumnCount(8)
+        self.order_detail_table.setHorizontalHeaderLabels([
+            "字段", "值", "字段", "值", "字段", "值", "字段", "值"
+        ])
+        self.order_detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.order_detail_table.setFixedHeight(150)
+        self.order_detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.order_detail_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+            }
+            QTableWidget::item { padding: 8px; }
+        """)
+        detail_layout.addWidget(self.order_detail_table)
+        
+        # 提示标签
+        self.order_detail_hint = QLabel("⬆ 点击下方订单列表中的订单查看详情")
+        self.order_detail_hint.setStyleSheet("color: #9ca3af; font-size: 12px; padding: 5px;")
+        self.order_detail_hint.setAlignment(Qt.AlignCenter)
+        detail_layout.addWidget(self.order_detail_hint)
+        
+        detail_group.setLayout(detail_layout)
+        layout.addWidget(detail_group)
+        
+        # ==================== 分割线 ====================
+        splitter = QFrame()
+        splitter.setFrameShape(QFrame.Shape.HLine)
+        splitter.setStyleSheet("background-color: #e5e7eb; max-height: 1px;")
+        layout.addWidget(splitter)
+        
+        # ==================== 下半部分：订单列表 ====================
+        list_group = QGroupBox("📑 订单列表")
+        list_layout = QVBoxLayout()
         
         # 搜索栏
         search_layout = QHBoxLayout()
         self.order_summary_search = QLineEdit()
-        self.order_summary_search.setPlaceholderText("搜索订单号/OE号/客户/产品...")
+        self.order_summary_search.setPlaceholderText("🔍 搜索订单号/OE号/客户/产品...")
         self.order_summary_search.setFixedHeight(35)
         self.order_summary_search.textChanged.connect(self.filter_order_summary)
         search_layout.addWidget(self.order_summary_search)
@@ -4240,104 +4281,44 @@ class MainWindow(QMainWindow):
         self.order_status_filter.currentTextChanged.connect(self.filter_order_summary)
         search_layout.addWidget(self.order_status_filter)
         
-        # 客户筛选
-        self.order_customer_filter = QComboBox()
-        self.order_customer_filter.addItem("全部客户")
-        self.order_customer_filter.currentTextChanged.connect(self.filter_order_summary)
-        search_layout.addWidget(self.order_customer_filter)
+        # 清除筛选
+        clear_btn = QPushButton("🗑 清除")
+        clear_btn.setFixedWidth(70)
+        clear_btn.clicked.connect(self._clear_order_summary_filter)
+        search_layout.addWidget(clear_btn)
         
-        # 供应商筛选
-        self.order_supplier_filter = QComboBox()
-        self.order_supplier_filter.addItem("全部供应商")
-        self.order_supplier_filter.currentTextChanged.connect(self.filter_order_summary)
-        search_layout.addWidget(self.order_supplier_filter)
+        list_layout.addLayout(search_layout)
         
-        # 日期筛选
-        date_layout = QHBoxLayout()
-        date_layout.addWidget(QLabel("从:"))
-        self.order_date_from = QDateEdit()
-        self.order_date_from.setCalendarPopup(True)
-        self.order_date_from.setDate(QDate.currentDate().addMonths(-1))
-        date_layout.addWidget(self.order_date_from)
-        date_layout.addWidget(QLabel("至:"))
-        self.order_date_to = QDateEdit()
-        self.order_date_to.setCalendarPopup(True)
-        self.order_date_to.setDate(QDate.currentDate())
-        date_layout.addWidget(self.order_date_to)
-        
-        # 应用日期筛选按钮
-        apply_date_btn = QPushButton("应用筛选")
-        apply_date_btn.setFixedHeight(35)
-        apply_date_btn.clicked.connect(self.filter_order_summary)
-        apply_date_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 0 15px;
-            }
-            QPushButton:hover { background-color: #2563eb; }
-        """)
-        date_layout.addWidget(apply_date_btn)
-        
-        # 清除筛选按钮
-        clear_filter_btn = QPushButton("清除")
-        clear_filter_btn.setFixedHeight(35)
-        clear_filter_btn.clicked.connect(self._clear_order_summary_filter)
-        clear_filter_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6b7280;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 0 15px;
-            }
-            QPushButton:hover { background-color: #4b5563; }
-        """)
-        date_layout.addWidget(clear_filter_btn)
-        
-        search_layout.addLayout(date_layout)
-        
-        layout.addLayout(search_layout)
-        
-        # 主表格 - 41列按模板设计
-        self.order_summary_table = QTableWidget()
-        self.order_summary_table.setColumnCount(41)
-        self.order_summary_table.setHorizontalHeaderLabels([
-            "订单日期", "ORDER NO.", "客户产品编号", "OE号", "客户需求备注",
-            "产品名称", "图片", "客户型号", "OE号.1", "数量",
-            "报价(USD/RMB)", "合计金额", "客户最新回复", "客户预付款", "待收尾款",
-            "预估美金报价", "预估毛利率", "采购价格", "运费", "杂费",
-            "总金额", "工厂简称", "店铺链接", "交货日期", "是否已收货",
-            "工厂订金", "工厂尾款", "入库操作", "入库数量", "包装方式",
-            "采购选项/名称", "产品细节", "工厂编号", "纸箱尺寸", "打包规格",
-            "箱数", "预估体积", "整箱毛重", "总重量", "品牌", "开票情况"
+        # 订单列表表格（主索引 - 按订单号分组）
+        self.order_list_table = QTableWidget()
+        self.order_list_table.setColumnCount(6)
+        self.order_list_table.setHorizontalHeaderLabels([
+            "选择", "ORDER NO.", "客户", "订单日期", "总金额", "状态"
         ])
-        self.order_summary_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        # 设置图片列宽度（固定宽度以显示缩略图）
-        self.order_summary_table.setColumnWidth(6, 60)  # 图片列
-        self.order_summary_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        # 启用双击编辑
-        self.order_summary_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
-        self.order_summary_table.setAlternatingRowColors(True)
-        # 绑定双击事件
-        self.order_summary_table.cellDoubleClicked.connect(self._on_order_summary_double_click)
-        # 绑定单元格点击事件（用于特定列打开对话框）
-        self.order_summary_table.cellClicked.connect(self._on_order_summary_cell_click)
+        self.order_list_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.order_list_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.order_list_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.order_list_table.setAlternatingRowColors(True)
+        self.order_list_table.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+            }
+        """)
+        self.order_list_table.setColumnWidth(0, 50)  # 选择列
+        self.order_list_table.setColumnWidth(3, 100)  # 日期列
+        self.order_list_table.setColumnWidth(5, 80)   # 状态列
+        # 绑定点击事件
+        self.order_list_table.cellClicked.connect(self._on_order_list_click)
+        list_layout.addWidget(self.order_list_table)
         
-        # 存储所有订单的完整数据，用于编辑
+        list_group.setLayout(list_layout)
+        layout.addWidget(list_group)
+        
+        # 存储所有订单的完整数据
         self._order_summary_orders = []
-        
-        layout.addWidget(self.order_summary_table)
-        
-        # 状态栏显示统计信息
-        status_layout = QHBoxLayout()
-        self.order_summary_status = QLabel("准备就绪")
-        self.order_summary_status.setStyleSheet("color: #6b7280;")
-        status_layout.addWidget(self.order_summary_status)
-        status_layout.addStretch()
-        layout.addLayout(status_layout)
+        self._order_summary_filtered = []
+        self._selected_order_index = None
         
         widget.setLayout(layout)
         
@@ -4345,6 +4326,133 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(100, self.load_order_summary)
         
         return widget
+    
+    def _on_order_list_click(self, row, column):
+        """点击订单列表行，显示详情"""
+        if row < 0 or row >= len(self._order_summary_filtered):
+            return
+        
+        # 如果点击的是选择列，复选框逻辑
+        if column == 0:
+            return  # 让复选框自行处理
+        
+        # 获取订单数据
+        order = self._order_summary_filtered[row]
+        self._selected_order_index = row
+        self._show_order_detail(order)
+    
+    def _show_order_detail(self, order):
+        """显示订单详情"""
+        self.order_detail_hint.hide()
+        
+        # 清空详情表格
+        self.order_detail_table.setRowCount(0)
+        
+        # 定义要显示的字段（分8列显示，4行）
+        fields = [
+            # Row 1
+            ("订单日期", order.get('order_date', '')),
+            ("ORDER NO.", order.get('order_no', '')),
+            ("客户", order.get('customer_name', '')),
+            ("总金额", f"{order.get('total_amount', 0)} {order.get('currency', 'USD')}"),
+            # Row 2
+            ("客户产品编号", order.get('customer_product_code', '')),
+            ("OE号", order.get('oe_number', '')),
+            ("客户型号", order.get('customer_model', '')),
+            ("数量", str(order.get('quantity', 0))),
+            # Row 3
+            ("产品名称", order.get('product_name', '')),
+            ("品牌", order.get('brand', '')),
+            ("单价", f"{order.get('unit_price', 0)} {order.get('currency', 'USD')}"),
+            ("客户预付款", str(order.get('customer_prepayment', 0))),
+            # Row 4
+            ("供应商", order.get('supplier_name', '')),
+            ("采购价格", str(order.get('purchase_price', 0))),
+            ("运费", str(order.get('shipping_fee', 0))),
+            ("待收尾款", str(order.get('remaining_payment', 0))),
+        ]
+        
+        # 填充表格
+        for i, (field, value) in enumerate(fields):
+            row = i // 4
+            col = (i % 4) * 2
+            self.order_detail_table.insertRow(row if i % 4 == 0 else row)
+        
+        # 设置行数
+        self.order_detail_table.setRowCount(4)
+        
+        # 填充数据
+        for i, (field, value) in enumerate(fields):
+            row = i // 4
+            col_field = (i % 4) * 2
+            col_value = col_field + 1
+            
+            # 字段列
+            field_item = QTableWidgetItem(field)
+            field_item.setBackground(QBrush(QColor("#f3f4f6")))
+            field_item.setFont(QFont("", 10, QFont.Weight.Bold))
+            self.order_detail_table.setItem(row, col_field, field_item)
+            
+            # 值列
+            value_item = QTableWidgetItem(str(value))
+            self.order_detail_table.setItem(row, col_value, value_item)
+    
+    def _import_order_summary(self):
+        """导入订单总表（占位功能）"""
+        print("[INFO] 导入订单总表功能")
+        
+        # ============================================================
+        # TODO: 导入功能实现
+        # ============================================================
+        # 示例代码：
+        #
+        # file_path, _ = QFileDialog.getOpenFileName(
+        #     self,
+        #     "选择导入文件",
+        #     "",
+        #     "Excel文件 (*.xlsx *.xls);;CSV文件 (*.csv)"
+        # )
+        # if not file_path:
+        #     return
+        #
+        # try:
+        #     # 读取Excel/CSV文件
+        #     df = pd.read_excel(file_path) if file_path.endswith('.xlsx') else pd.read_csv(file_path)
+        #
+        #     # 字段识别示例（需要根据实际表格结构调整）
+        #     field_mapping = {
+        #         '订单号': 'order_no',
+        #         '客户': 'customer_name',
+        #         '产品编号': 'customer_product_code',
+        #         'OE号': 'oe_number',
+        #         '数量': 'quantity',
+        #         '单价': 'unit_price',
+        #         '总价': 'total_amount',
+        #         '日期': 'order_date',
+        #         '备注': 'customer_requirement',
+        #     }
+        #
+        #     # 处理每行数据
+        #     for _, row in df.iterrows():
+        #         order_data = {}
+        #         for col_name, field_name in field_mapping.items():
+        #             if col_name in df.columns:
+        #                 order_data[field_name] = row[col_name]
+        #
+        #         # 调用API保存
+        #         self.api_client.create_order_summary_item(order_data)
+        #
+        #     QMessageBox.information(self, "成功", f"已导入 {len(df)} 条记录")
+        #     self.load_order_summary()
+        # except Exception as e:
+        #     QMessageBox.warning(self, "错误", f"导入失败: {e}")
+        # ============================================================
+        
+        QMessageBox.information(
+            self, 
+            "导入功能", 
+            "导入功能开发中...\n\n字段识别规则待配置。\n请查看代码中的注释示例。"
+        )
     
     def load_order_summary(self):
         """加载订单总表数据"""
@@ -4453,9 +4561,10 @@ class MainWindow(QMainWindow):
             
             print(f"[DEBUG] 订单总表: 构建完成, 共 {len(orders)} 条数据")
             self._order_summary_orders = orders  # 存储完整数据用于编辑
-            self._populate_order_summary_table(orders)
+            self._order_summary_filtered = orders  # 用于筛选的列表
+            self._populate_order_list_table(orders)  # 填充订单列表
             self._hide_loading_tip()
-            self.order_summary_status.setText(f"共 {len(orders)} 条订单记录")
+            self._order_summary_status.setText(f"共 {len(orders)} 条订单")
             print("[DEBUG] 订单总表: UI更新完成")
         except Exception as e:
             print(f"[ERROR] 订单总表: 处理数据失败: {e}")
@@ -4481,6 +4590,49 @@ class MainWindow(QMainWindow):
                 self.order_supplier_filter.addItem(s.get('name', ''))
         except Exception as e:
             print(f"[ERROR] 更新筛选器失败: {e}")
+    
+    def _populate_order_list_table(self, orders):
+        """填充订单列表表格（下半部分）"""
+        self.order_list_table.setRowCount(0)
+        self.order_list_table.setSortingEnabled(False)
+        
+        for order in orders:
+            row = self.order_list_table.rowCount()
+            self.order_list_table.insertRow(row)
+            
+            # 0: 选择复选框
+            checkbox = QCheckBox()
+            checkbox.setStyleSheet("margin-left: 50%;")
+            self.order_list_table.setCellWidget(row, 0, checkbox)
+            
+            # 1: ORDER NO.
+            self.order_list_table.setItem(row, 1, QTableWidgetItem(order.get('order_no', '')))
+            
+            # 2: 客户
+            self.order_list_table.setItem(row, 2, QTableWidgetItem(order.get('customer_name', '')))
+            
+            # 3: 订单日期
+            self.order_list_table.setItem(row, 3, QTableWidgetItem(order.get('order_date', '')))
+            
+            # 4: 总金额
+            currency = order.get('currency', 'USD')
+            total = order.get('total_amount', 0)
+            amount_item = QTableWidgetItem(f"{total} {currency}")
+            amount_item.setTextAlignment(Qt.AlignRight)
+            self.order_list_table.setItem(row, 4, amount_item)
+            
+            # 5: 状态
+            status = order.get('status', '进行中')
+            status_item = QTableWidgetItem(status)
+            if '完成' in status:
+                status_item.setForeground(QBrush(QColor("#10b981")))  # 绿色
+            elif '取消' in status:
+                status_item.setForeground(QBrush(QColor("#ef4444")))  # 红色
+            else:
+                status_item.setForeground(QBrush(QColor("#3b82f6")))  # 蓝色
+            self.order_list_table.setItem(row, 5, status_item)
+        
+        self.order_list_table.setSortingEnabled(True)
     
     def _build_order_summary_row(self, pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list, customers=None, products=None):
         """构建订单总表单行数据"""
@@ -4811,71 +4963,51 @@ class MainWindow(QMainWindow):
         self.order_summary_table.setSortingEnabled(True)
     
     def filter_order_summary(self):
-        """筛选订单总表"""
+        """筛选订单列表"""
         search_text = self.order_summary_search.text().lower()
         status_filter = self.order_status_filter.currentText()
-        customer_filter = self.order_customer_filter.currentText()
-        supplier_filter = self.order_supplier_filter.currentText()
         
-        # 日期筛选
-        date_from = self.order_date_from.date().toString("yyyy-MM-dd")
-        date_to = self.order_date_to.date().toString("yyyy-MM-dd")
-        
-        for row in range(self.order_summary_table.rowCount()):
-            # 隐藏所有行，再根据条件显示
+        # 从原始数据筛选
+        filtered = []
+        for order in self._order_summary_orders:
             match = True
             
             # 搜索文本匹配
             if search_text:
                 match = False
-                for col in range(min(15, self.order_summary_table.columnCount())):
-                    item = self.order_summary_table.item(row, col)
-                    if item and search_text in item.text().lower():
+                search_fields = [
+                    order.get('order_no', ''),
+                    order.get('customer_name', ''),
+                    order.get('oe_number', ''),
+                    order.get('product_name', ''),
+                    order.get('customer_product_code', ''),
+                ]
+                for field in search_fields:
+                    if search_text in str(field).lower():
                         match = True
                         break
             
             # 状态筛选
             if match and status_filter != "全部状态":
-                status_col = 40  # 状态列
-                item = self.order_summary_table.item(row, status_col)
-                status = item.text() if item else ""
-                if status_filter == "进行中" and status == "已完成":
+                status = order.get('status', '进行中')
+                if status_filter == "进行中" and "进行中" not in status:
                     match = False
-                elif status_filter == "已完成" and status == "进行中":
+                elif status_filter == "已完成" and "完成" not in status:
+                    match = False
+                elif status_filter == "已取消" and "取消" not in status:
                     match = False
             
-            # 客户筛选
-            if match and customer_filter != "全部客户":
-                # 列21是工厂简称，列5是产品名称，根据需要调整
-                item = self.order_summary_table.item(row, 5)  # 产品名称列
-                # 这里简化处理，实际可以从order数据中获取客户信息
-                pass
-            
-            # 供应商筛选
-            if match and supplier_filter != "全部供应商":
-                item = self.order_summary_table.item(row, 21)  # 工厂简称列
-                # 根据需要实现
-                pass
-            
-            # 日期筛选
             if match:
-                item = self.order_summary_table.item(row, 0)  # 订单日期列
-                if item:
-                    order_date = item.text()
-                    if order_date:
-                        if order_date < date_from or order_date > date_to:
-                            match = False
-            
-            self.order_summary_table.setRowHidden(row, not match)
+                filtered.append(order)
+        
+        # 更新筛选后的列表
+        self._order_summary_filtered = filtered
+        self._populate_order_list_table(filtered)
     
     def _clear_order_summary_filter(self):
         """清除筛选条件"""
         self.order_summary_search.clear()
         self.order_status_filter.setCurrentText("全部状态")
-        self.order_customer_filter.setCurrentText("全部客户")
-        self.order_supplier_filter.setCurrentText("全部供应商")
-        self.order_date_from.setDate(QDate.currentDate().addMonths(-1))
-        self.order_date_to.setDate(QDate.currentDate())
         self.filter_order_summary()
     
     def _on_order_summary_double_click(self, row, column):
