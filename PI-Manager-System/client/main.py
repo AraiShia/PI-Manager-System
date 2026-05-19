@@ -5254,12 +5254,58 @@ class MainWindow(QMainWindow):
             print(f"搜索结果数量: {len(products)}")
             self.products_table.setRowCount(len(products))
             for row, p in enumerate(products):
+                product_id = p.get('id')
+                
+                # 0: 复选框
                 checkbox = QCheckBox()
                 checkbox.setCheckState(Qt.CheckState.Unchecked)
                 checkbox.setStyleSheet("margin-left: 50%;")
                 self.products_table.setCellWidget(row, 0, checkbox)
                 
-                # 显示图片缩略图
+                # 获取OE和客户关联
+                oe_list = []
+                customer_product_list = []
+                try:
+                    oe_list = self.api_client.get_product_oes(product_id) or []
+                    customer_product_list = self.api_client.get_product_customers(product_id) or []
+                except:
+                    pass
+                
+                # 1: 客户产品编号
+                customer_product_code = ""
+                if customer_product_list:
+                    first_pc = customer_product_list[0]
+                    full_code = first_pc.get('customer_product_code', '')
+                    customer_code = first_pc.get('customer_code', '')
+                    if full_code and customer_code:
+                        customer_product_code = full_code.replace(customer_code, "", 1).lstrip("-")
+                    else:
+                        customer_product_code = full_code or ""
+                self.products_table.setItem(row, 1, QTableWidgetItem(customer_product_code))
+                
+                # 2: OE号
+                primary_oe = next((oe for oe in oe_list if oe.get('is_primary')), None)
+                if len(oe_list) > 1:
+                    btn = QPushButton("多OE号")
+                    btn.setStyleSheet("""
+                        QPushButton {
+                            background-color: #3b82f6;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            padding: 4px 8px;
+                            font-size: 11px;
+                        }
+                        QPushButton:hover { background-color: #2563eb; }
+                    """)
+                    btn.clicked.connect(lambda checked, pid=product_id, oes=oe_list: self._show_product_oe_dialog(pid, oes))
+                    self.products_table.setCellWidget(row, 2, btn)
+                elif primary_oe:
+                    self.products_table.setItem(row, 2, QTableWidgetItem(primary_oe.get('oe_number', '')))
+                else:
+                    self.products_table.setItem(row, 2, QTableWidgetItem(p.get('oe_number', '') or '-'))
+                
+                # 3: 图片
                 image_label = QLabel()
                 image_label.setFixedSize(60, 60)
                 image_label.setStyleSheet("border: 1px solid #e5e7eb;")
@@ -5277,33 +5323,42 @@ class MainWindow(QMainWindow):
                 else:
                     image_label.setText("暂无图片")
                 
-                image_label.mousePressEvent = lambda event, p=p: self.view_product_images(p.get('id'))
                 image_label.setCursor(Qt.PointingHandCursor)
-                self.products_table.setCellWidget(row, 1, image_label)
-
-                self.products_table.setItem(row, 2, QTableWidgetItem(str(p.get('id', ''))))
-                self.products_table.setItem(row, 3, QTableWidgetItem(p.get('factory_code', '')))
-                self.products_table.setItem(row, 4, QTableWidgetItem(p.get('oe_number', '')))
-                self.products_table.setItem(row, 5, QTableWidgetItem(p.get('brand', '')))
-                self.products_table.setItem(row, 6, QTableWidgetItem(str(p.get('units_per_carton', ''))))
+                self.products_table.setCellWidget(row, 3, image_label)
                 
-                unit_price = p.get('fob_price_excl') or p.get('exw_price_excl') or ''
-                self.products_table.setItem(row, 7, QTableWidgetItem(str(unit_price)))
+                # 4: 产品名称
+                self.products_table.setItem(row, 4, QTableWidgetItem(p.get('detail_desc', '')))
                 
-                status = p.get('status', 1)
-                status_text = "启用" if status == 1 else "禁用"
-                status_color = "#10b981" if status == 1 else "#ef4444"
-                status_item = QTableWidgetItem(status_text)
-                status_item.setForeground(QBrush(QColor(status_color)))
-                self.products_table.setItem(row, 8, status_item)
-
+                # 5: 客户型号
+                customer_model = ""
+                if customer_product_list:
+                    customer_model = customer_product_list[0].get('customer_model', '') or ""
+                self.products_table.setItem(row, 5, QTableWidgetItem(customer_model))
+                
+                # 6: 客户号（留空）
+                self.products_table.setItem(row, 6, QTableWidgetItem(""))
+                
+                # 7: 产品特性（品牌）
+                self.products_table.setItem(row, 7, QTableWidgetItem(p.get('brand', '') or '-'))
+                
+                # 8: 数量（库存）- 搜索时显示units_per_carton
+                units = p.get('units_per_carton', 0)
+                units_item = QTableWidgetItem(str(units) if units else '0')
+                units_item.setTextAlignment(Qt.AlignCenter)
+                self.products_table.setItem(row, 8, units_item)
+                
+                # 9: 报价
+                unit_price = p.get('exw_price_incl', 0) or p.get('fob_price_excl', 0) or p.get('exw_price_excl', 0) or ''
+                price_text = f"{unit_price} USD" if unit_price else "-"
+                price_item = QTableWidgetItem(str(price_text))
+                price_item.setTextAlignment(Qt.AlignRight)
+                self.products_table.setItem(row, 9, price_item)
+                
+                # 10: 编辑按钮
                 edit_btn = QPushButton("编辑")
                 edit_btn.setFixedWidth(50)
-                edit_btn.clicked.connect(lambda _, p=p: self.edit_product(p))
-                self.products_table.setCellWidget(row, 9, edit_btn)
-                
-                # 产品编号放在最后一列（默认隐藏）
-                self.products_table.setItem(row, 10, QTableWidgetItem(p.get('product_code', '')))
+                edit_btn.clicked.connect(lambda _, prod=p: self.edit_product(prod))
+                self.products_table.setCellWidget(row, 10, edit_btn)
                 
             self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
         except Exception as e:
@@ -6462,11 +6517,11 @@ class MainWindow(QMainWindow):
                 
                 edit_btn = QPushButton("编辑")
                 edit_btn.setFixedWidth(50)
-                edit_btn.clicked.connect(lambda _, p=p: self.edit_product(p))
+                edit_btn.clicked.connect(lambda _, prod=p: self.edit_product(prod))
                 action_layout.addWidget(edit_btn)
                 
                 action_widget.setLayout(action_layout)
-                self.products_table.setCellWidget(row, 7, action_widget)
+                self.products_table.setCellWidget(row, 10, action_widget)  # 修复：编辑按钮应该在列10
         except Exception as e:
             print(f"更新产品表格失败: {e}")
 
