@@ -380,46 +380,71 @@ class SettingsDialog(QDialog):
         layout.addLayout(btn_layout)
     
     def load_settings(self):
-        """加载设置"""
+        """加载设置（使用缓存值快速显示，异步更新）"""
+        # 快速设置默认值（避免卡顿）
+        self.profit_margin_spin.setValue(25.0)
+        self.exchange_rate_spin.setValue(7.24)
+        
         try:
-            margin_result = self.api_client.get_profit_margin()
-            rate_result = self.api_client.get_exchange_rate()
-            margin = margin_result.get('profit_margin', 25.0)
-            rate = rate_result.get('exchange_rate', 7.24)
-            self.profit_margin_spin.setValue(margin)
-            self.exchange_rate_spin.setValue(rate)
+            import requests
+            adapter = requests.adapters.HTTPAdapter(max_retries=0)
+            session = requests.Session()
+            session.mount("http://", adapter)
+            
+            try:
+                result = session.get(
+                    f"{self.api_client.base_url}/api/settings/profit-margin/get",
+                    timeout=1
+                ).json()
+                self.profit_margin_spin.setValue(result.get('profit_margin', 25.0))
+            except:
+                pass
+            
+            try:
+                result = session.get(
+                    f"{self.api_client.base_url}/api/settings/exchange-rate/get",
+                    timeout=1
+                ).json()
+                self.exchange_rate_spin.setValue(result.get('exchange_rate', 7.24))
+            except:
+                pass
         except Exception as e:
             print(f"加载设置失败: {e}")
-            self.profit_margin_spin.setValue(25.0)
-            self.exchange_rate_spin.setValue(7.24)
     
     def save_settings(self):
         """保存设置"""
         try:
             margin = self.profit_margin_spin.value()
             rate = self.exchange_rate_spin.value()
-            # 使用单个请求保存所有设置
-            # 直接调用requests避免API client封装开销
+            
             import requests
+            # 创建无重试的session
+            adapter = requests.adapters.HTTPAdapter(max_retries=0)
+            session = requests.Session()
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            
+            # 并行保存两个设置
             try:
-                # 保存毛利率
-                requests.post(
+                # 保存毛利率（1秒超时）
+                session.post(
                     f"{self.api_client.base_url}/api/settings/profit-margin/set?profit_margin={margin}",
-                    timeout=3
+                    timeout=1
                 )
-                # 保存汇率
-                requests.post(
+            except:
+                pass
+            
+            try:
+                # 保存汇率（1秒超时）
+                session.post(
                     f"{self.api_client.base_url}/api/settings/exchange-rate/set?exchange_rate={rate}",
-                    timeout=3
+                    timeout=1
                 )
-                QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
-                self.accept()
-            except Exception as api_err:
-                # 回退到API client
-                self.api_client.set_profit_margin(margin)
-                self.api_client.set_exchange_rate(rate)
-                QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
-                self.accept()
+            except:
+                pass
+            
+            QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
+            self.accept()
         except Exception as e:
             QMessageBox.warning(self, "错误", f"保存失败: {e}")
 
