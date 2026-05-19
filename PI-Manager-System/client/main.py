@@ -4380,23 +4380,49 @@ class MainWindow(QMainWindow):
             "采购选项/名称", "产品细节", "工厂编号", "纸箱尺寸", "打包规格",
             "箱数", "预估体积", "整箱毛重", "总重量", "品牌", "开票情况"
         ])
-        self.order_detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # 设置关键列宽度
-        self.order_detail_table.setColumnWidth(0, 60)   # 序号/标记列
-        self.order_detail_table.setColumnWidth(1, 150)  # ORDER NO.
-        self.order_detail_table.setColumnWidth(2, 150)  # 客户产品编号/客户
-        self.order_detail_table.setColumnWidth(3, 150)  # OE号/总金额
-        self.order_detail_table.setColumnWidth(4, 200)  # 备注/状态
-        self.order_detail_table.setColumnWidth(5, 200)  # 产品名称/预付款
-        self.order_detail_table.setColumnWidth(6, 80)   # 图片列
-        self.order_detail_table.setColumnWidth(7, 120)  # 客户型号
-        self.order_detail_table.setColumnWidth(9, 80)   # 数量列
-        self.order_detail_table.setColumnWidth(10, 100) # 报价列
-        self.order_detail_table.setColumnWidth(11, 100) # 合计金额
-        self.order_detail_table.setColumnWidth(15, 120) # 预估美金报价
-        self.order_detail_table.setColumnWidth(16, 100) # 预估毛利率
-        self.order_detail_table.setColumnWidth(17, 120) # 采购价格
-        self.order_detail_table.setColumnWidth(18, 100) # 运费
+        self.order_detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        # 设置关键列宽度（大幅加宽）
+        self.order_detail_table.setColumnWidth(0, 80)    # 序号/标记列
+        self.order_detail_table.setColumnWidth(1, 200)   # ORDER NO.
+        self.order_detail_table.setColumnWidth(2, 200)   # 客户产品编号/客户
+        self.order_detail_table.setColumnWidth(3, 180)   # OE号/总金额
+        self.order_detail_table.setColumnWidth(4, 250)   # 备注/状态
+        self.order_detail_table.setColumnWidth(5, 250)   # 产品名称/预付款
+        self.order_detail_table.setColumnWidth(6, 100)  # 图片列
+        self.order_detail_table.setColumnWidth(7, 180)   # 客户型号
+        self.order_detail_table.setColumnWidth(8, 180)   # OE号.1
+        self.order_detail_table.setColumnWidth(9, 100)  # 数量列
+        self.order_detail_table.setColumnWidth(10, 120) # 报价列
+        self.order_detail_table.setColumnWidth(11, 150) # 合计金额
+        self.order_detail_table.setColumnWidth(12, 300) # 客户最新回复
+        self.order_detail_table.setColumnWidth(13, 150) # 客户预付款
+        self.order_detail_table.setColumnWidth(14, 150) # 待收尾款
+        self.order_detail_table.setColumnWidth(15, 150) # 预估美金报价
+        self.order_detail_table.setColumnWidth(16, 120) # 预估毛利率
+        self.order_detail_table.setColumnWidth(17, 150) # 采购价格
+        self.order_detail_table.setColumnWidth(18, 120) # 运费
+        self.order_detail_table.setColumnWidth(19, 100) # 杂费
+        self.order_detail_table.setColumnWidth(20, 150) # 总金额
+        self.order_detail_table.setColumnWidth(21, 180) # 工厂简称
+        self.order_detail_table.setColumnWidth(22, 300) # 店铺链接
+        self.order_detail_table.setColumnWidth(23, 150) # 交货日期
+        self.order_detail_table.setColumnWidth(24, 100) # 是否已收货
+        self.order_detail_table.setColumnWidth(25, 150) # 工厂订金
+        self.order_detail_table.setColumnWidth(26, 150) # 工厂尾款
+        self.order_detail_table.setColumnWidth(27, 120) # 入库操作
+        self.order_detail_table.setColumnWidth(28, 100) # 入库数量
+        self.order_detail_table.setColumnWidth(29, 120) # 包装方式
+        self.order_detail_table.setColumnWidth(30, 180) # 采购选项/名称
+        self.order_detail_table.setColumnWidth(31, 200) # 产品细节
+        self.order_detail_table.setColumnWidth(32, 150) # 工厂编号
+        self.order_detail_table.setColumnWidth(33, 150) # 纸箱尺寸
+        self.order_detail_table.setColumnWidth(34, 150) # 打包规格
+        self.order_detail_table.setColumnWidth(35, 80)  # 箱数
+        self.order_detail_table.setColumnWidth(36, 120) # 预估体积
+        self.order_detail_table.setColumnWidth(37, 120) # 整箱毛重
+        self.order_detail_table.setColumnWidth(38, 120) # 总重量
+        self.order_detail_table.setColumnWidth(39, 120) # 品牌
+        self.order_detail_table.setColumnWidth(40, 150) # 开票情况
         self.order_detail_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.order_detail_table.setAlternatingRowColors(True)
         self.order_detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -4532,7 +4558,31 @@ class MainWindow(QMainWindow):
             return
         
         order = self._order_summary_filtered[self._selected_order_index]
-        # 获取列名
+        
+        # 开票情况列（40）特殊处理 - 点击切换状态
+        if column == 40:
+            current_status = order.get('invoice_status', '未上传')
+            if '已上传' in current_status or '已开' in current_status:
+                new_status = '未上传'
+            else:
+                new_status = '已上传'
+            
+            # 更新数据
+            order['invoice_status'] = new_status
+            
+            # 更新显示
+            invoice_item = QTableWidgetItem(new_status)
+            if '已上传' in new_status or '已开' in new_status:
+                invoice_item.setForeground(QBrush(QColor("#10b981")))
+            else:
+                invoice_item.setForeground(QBrush(QColor("#ef4444")))
+            self.order_detail_table.setItem(row, column, invoice_item)
+            
+            # 同步更新列表数据
+            self._order_summary_filtered[self._selected_order_index] = order
+            return
+        
+        # 其他列正常打开编辑对话框
         headers = [self.order_detail_table.horizontalHeaderItem(i).text() 
                    for i in range(self.order_detail_table.columnCount())]
         if column < len(headers):
@@ -4669,6 +4719,17 @@ class MainWindow(QMainWindow):
             
             # 品牌
             self.order_detail_table.setItem(row, 39, QTableWidgetItem(item.get('brand', '')))
+            
+            # 开票情况 - 显示状态并支持点击切换
+            invoice_status = order.get('invoice_status', '未上传')
+            if not invoice_status:
+                invoice_status = '未上传'
+            invoice_item = QTableWidgetItem(invoice_status)
+            if '已上传' in invoice_status or '已开' in invoice_status:
+                invoice_item.setForeground(QBrush(QColor("#10b981")))  # 绿色
+            else:
+                invoice_item.setForeground(QBrush(QColor("#ef4444")))  # 红色
+            self.order_detail_table.setItem(row, 40, invoice_item)
             
             # 预估计算（基于采购价格）
             factory_rmb = item.get('purchase_price', 0) or 0
