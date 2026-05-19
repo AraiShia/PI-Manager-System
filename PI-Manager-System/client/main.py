@@ -366,68 +366,30 @@ class SettingsDialog(QDialog):
         layout.addLayout(btn_layout)
     
     def load_settings(self):
-        """加载设置（使用缓存值快速显示，异步更新）"""
-        # 快速设置默认值（避免卡顿）
-        self.profit_margin_spin.setValue(25.0)
-        self.exchange_rate_spin.setValue(7.24)
-        
+        """加载设置（使用本地配置，无网络延迟）"""
         try:
-            import requests
-            adapter = requests.adapters.HTTPAdapter(max_retries=0)
-            session = requests.Session()
-            session.mount("http://", adapter)
-            
-            try:
-                result = session.get(
-                    f"{self.api_client.base_url}/api/settings/profit-margin/get",
-                    timeout=1
-                ).json()
-                self.profit_margin_spin.setValue(result.get('profit_margin', 25.0))
-            except:
-                pass
-            
-            try:
-                result = session.get(
-                    f"{self.api_client.base_url}/api/settings/exchange-rate/get",
-                    timeout=1
-                ).json()
-                self.exchange_rate_spin.setValue(result.get('exchange_rate', 7.24))
-            except:
-                pass
+            from config.local_settings_manager import load_local_settings
+            settings = load_local_settings()
+            self.profit_margin_spin.setValue(settings.get('default_profit_margin', 25.0))
+            self.exchange_rate_spin.setValue(settings.get('exchange_rate', 7.24))
         except Exception as e:
             print(f"加载设置失败: {e}")
+            self.profit_margin_spin.setValue(25.0)
+            self.exchange_rate_spin.setValue(7.24)
     
     def save_settings(self):
-        """保存设置"""
+        """保存设置到本地配置文件"""
         try:
             margin = self.profit_margin_spin.value()
             rate = self.exchange_rate_spin.value()
             
-            import requests
-            # 创建无重试的session
-            adapter = requests.adapters.HTTPAdapter(max_retries=0)
-            session = requests.Session()
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
-            
-            # 并行保存两个设置
-            try:
-                # 保存毛利率（1秒超时）
-                session.post(
-                    f"{self.api_client.base_url}/api/settings/profit-margin/set?profit_margin={margin}",
-                    timeout=1
-                )
-            except:
-                pass
-            
-            try:
-                # 保存汇率（1秒超时）
-                session.post(
-                    f"{self.api_client.base_url}/api/settings/exchange-rate/set?exchange_rate={rate}",
-                    timeout=1
-                )
-            except:
-                pass
+            # 保存到本地配置（不使用数据库）
+            from config.local_settings_manager import save_local_settings
+            settings = {
+                'default_profit_margin': margin,
+                'exchange_rate': rate
+            }
+            save_local_settings(settings)
             
             QMessageBox.information(self, "成功", f"设置已保存\n毛利率: {margin}%\n汇率: {rate}")
             self.accept()
@@ -2575,15 +2537,17 @@ class MainWindow(QMainWindow):
         self.load_data()
     
     def load_globals(self):
-        """加载全局变量"""
+        """加载全局变量（使用本地配置，无网络延迟）"""
         try:
-            margin_result = self.api_client.get_profit_margin()
-            rate_result = self.api_client.get_exchange_rate()
-            self.default_profit_margin = margin_result.get('profit_margin', 25.0)
-            self.exchange_rate = rate_result.get('exchange_rate', 7.24)
+            from config.local_settings_manager import load_local_settings
+            settings = load_local_settings()
+            self.default_profit_margin = settings.get('default_profit_margin', 25.0)
+            self.exchange_rate = settings.get('exchange_rate', 7.24)
             print(f"[INFO] 全局变量加载: 毛利率={self.default_profit_margin}%, 汇率={self.exchange_rate}")
         except Exception as e:
             print(f"[WARN] 加载全局变量失败，使用默认值: {e}")
+            self.default_profit_margin = 25.0
+            self.exchange_rate = 7.24
     
     def calculate_estimated_usd_price(self, factory_rmb_price):
         """计算预估美金报价
@@ -4562,52 +4526,44 @@ class MainWindow(QMainWindow):
         )
     
     def load_order_summary(self):
-        """加载订单总表数据"""
-        print("[DEBUG] 订单总表: 开始加载数据")
+        """加载订单总表数据（使用缓存优化性能）"""
+        print("[INFO] 订单总表: 开始加载数据")
+        
+        # 检查缓存
+        if hasattr(self, '_order_summary_cache') and self._order_summary_cache:
+            print("[INFO] 订单总表: 使用缓存数据")
+            self._on_order_summary_loaded()
+            return
+        
         self._show_loading_tip("正在加载订单总表...")
         
         def fetch():
             try:
-                print("[DEBUG] 订单总表: 开始获取所有模块数据...")
-                # 获取所有相关数据
-                pi_list = self.api_client.get_pi_orders() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(pi_list)} 条PI订单")
+                # 并发获取所有数据
+                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+                    pi_future = executor.submit(self.api_client.get_pi_orders)
+                    purchase_future = executor.submit(self.api_client.get_purchase_orders)
+                    shipment_future = executor.submit(self.api_client.get_shipments)
+                    customer_pay_future = executor.submit(self.api_client.get_customer_payments)
+                    supplier_pay_future = executor.submit(self.api_client.get_supplier_payments)
+                    
+                    # 获取结果
+                    pi_list = pi_future.result() or []
+                    purchase_list = purchase_future.result() or []
+                    shipment_list = shipment_future.result() or []
+                    customer_payment_list = customer_pay_future.result() or []
+                    supplier_payment_list = supplier_pay_future.result() or []
                 
-                purchase_list = self.api_client.get_purchase_orders() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(purchase_list)} 条采购订单")
-                
-                shipment_list = self.api_client.get_shipments() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(shipment_list)} 条出货记录")
-                
-                customer_payment_list = self.api_client.get_customer_payments() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(customer_payment_list)} 条客户付款")
-                
-                supplier_payment_list = self.api_client.get_supplier_payments() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(supplier_payment_list)} 条供应商付款")
-                
-                inventory_list = self.api_client.get_inventories() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(inventory_list)} 条库存记录")
-                
-                products = self.api_client.get_products() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(products)} 个产品")
-                
-                customers = self.api_client.get_customers() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(customers)} 个客户")
-                
-                suppliers = self.api_client.get_suppliers() or []
-                print(f"[DEBUG] 订单总表: 获取到 {len(suppliers)} 个供应商")
-                
-                return {
+                # 缓存数据
+                self._order_summary_cache = {
                     'pi_list': pi_list,
                     'purchase_list': purchase_list,
                     'shipment_list': shipment_list,
                     'customer_payment_list': customer_payment_list,
-                    'supplier_payment_list': supplier_payment_list,
-                    'inventory_list': inventory_list,
-                    'products': products,
-                    'customers': customers,
-                    'suppliers': suppliers
+                    'supplier_payment_list': supplier_payment_list
                 }
+                
+                return self._order_summary_cache
             except Exception as e:
                 print(f"[ERROR] 订单总表: 加载数据失败: {e}")
                 import traceback
@@ -4630,73 +4586,88 @@ class MainWindow(QMainWindow):
     
     def _on_order_summary_loaded(self):
         """订单总表数据加载完成"""
-        print("[DEBUG] 订单总表: 数据加载完成回调")
+        print("[INFO] 订单总表: 处理数据...")
         
-        # 重新执行获取数据
         try:
-            pi_list = self.api_client.get_pi_orders() or []
-            print(f"[DEBUG] 订单总表: 处理 {len(pi_list)} 条PI订单")
+            # 使用缓存的数据
+            cache = getattr(self, '_order_summary_cache', None) or {}
+            pi_list = cache.get('pi_list') or []
+            purchase_list = cache.get('purchase_list') or []
+            shipment_list = cache.get('shipment_list') or []
+            customer_payment_list = cache.get('customer_payment_list') or []
+            supplier_payment_list = cache.get('supplier_payment_list') or []
             
-            purchase_list = self.api_client.get_purchase_orders() or []
-            shipment_list = self.api_client.get_shipments() or []
-            customer_payment_list = self.api_client.get_customer_payments() or []
-            supplier_payment_list = self.api_client.get_supplier_payments() or []
+            print(f"[INFO] 订单总表: 处理 {len(pi_list)} 条PI订单")
             
             # 获取客户和产品映射（用于快速查找）
             customers_raw = self.api_client.get_customers() or []
             products_raw = self.api_client.get_products() or []
-            
-            print(f"[DEBUG] 订单总表: 原始客户数据示例: {customers_raw[0] if customers_raw else '空'}")
-            print(f"[DEBUG] 订单总表: 原始产品数据示例: {products_raw[0] if products_raw else '空'}")
+            suppliers_raw = self.api_client.get_suppliers() or []
             
             customers = {c['id']: c for c in customers_raw}
             products = {p['id']: p for p in products_raw}
+            suppliers = {s['id']: s for s in suppliers_raw}
             
-            print(f"[DEBUG] 订单总表: 加载 {len(customers)} 个客户, {len(products)} 个产品")
+            print(f"[INFO] 订单总表: {len(customers)} 客户, {len(products)} 产品, {len(suppliers)} 供应商")
             
-            # 更新客户和供应商下拉框
-            self._update_order_summary_filters(pi_list)
-            
-            # 构建订单总表数据
+            # 构建订单总表数据（前端计算）
             orders = []
-            for i, pi in enumerate(pi_list):
-                print(f"[DEBUG] 订单总表: 构建第 {i+1}/{len(pi_list)} 行数据, PI_NO={pi.get('pi_no', 'N/A')}")
+            for pi in pi_list:
                 # 获取PI的详细信息
-                pi_detail = self.api_client.get_pi_detail(pi.get('id'))
-                order = self._build_order_summary_row(pi_detail or pi, purchase_list, shipment_list, customer_payment_list, supplier_payment_list, customers, products)
+                pi_detail = self.api_client.get_pi_detail(pi.get('id')) if pi.get('id') else None
+                order = self._build_order_summary_row(
+                    pi_detail or pi, 
+                    purchase_list, 
+                    shipment_list, 
+                    customer_payment_list, 
+                    supplier_payment_list, 
+                    customers, 
+                    products,
+                    suppliers
+                )
+                # 前端计算预估美金报价
+                self._calculate_order_estimates(order)
                 orders.append(order)
             
-            print(f"[DEBUG] 订单总表: 构建完成, 共 {len(orders)} 条数据")
-            self._order_summary_orders = orders  # 存储完整数据用于编辑
-            self._order_summary_filtered = orders  # 用于筛选的列表
-            self._populate_order_list_table(orders)  # 填充订单列表
+            print(f"[INFO] 订单总表: 构建完成, 共 {len(orders)} 条数据")
+            self._order_summary_orders = orders
+            self._order_summary_filtered = orders
+            self._populate_order_list_table(orders)
             self._hide_loading_tip()
             self._order_summary_status.setText(f"共 {len(orders)} 条订单")
-            print("[DEBUG] 订单总表: UI更新完成")
+            print("[INFO] 订单总表: UI更新完成")
         except Exception as e:
             print(f"[ERROR] 订单总表: 处理数据失败: {e}")
             import traceback
             traceback.print_exc()
             self._hide_loading_tip()
     
-    def _update_order_summary_filters(self, pi_list):
-        """更新订单总表的筛选下拉框"""
+    def _calculate_order_estimates(self, order):
+        """前端计算订单的预估美金报价和毛利率"""
         try:
-            # 更新客户下拉框
-            self.order_customer_filter.clear()
-            self.order_customer_filter.addItem("全部客户")
-            customers = self.api_client.get_customers() or []
-            for c in customers:
-                self.order_customer_filter.addItem(c.get('name', ''))
+            factory_rmb = order.get('purchase_price', 0) or 0
+            total_amount = order.get('total_amount', 0) or 0
             
-            # 更新供应商下拉框
-            self.order_supplier_filter.clear()
-            self.order_supplier_filter.addItem("全部供应商")
-            suppliers = self.api_client.get_suppliers() or []
-            for s in suppliers:
-                self.order_supplier_filter.addItem(s.get('name', ''))
+            # 预估美金报价 = 工厂人民币价格 × (1 + 毛利率) / 汇率
+            if factory_rmb > 0:
+                margin_factor = 1 + (self.default_profit_margin / 100)
+                estimated_usd = factory_rmb * margin_factor / self.exchange_rate
+                order['estimated_usd_price'] = round(estimated_usd, 2)
+            else:
+                order['estimated_usd_price'] = 0
+            
+            # 预估毛利率 = (客户总价 - 成本总价) / 客户总价
+            if total_amount > 0 and factory_rmb > 0:
+                customer_total_rmb = total_amount
+                if customer_total_rmb > 0:
+                    profit_margin = (customer_total_rmb - factory_rmb) / customer_total_rmb * 100
+                    order['profit_margin'] = round(max(0, profit_margin), 1)
+                else:
+                    order['profit_margin'] = 0
+            else:
+                order['profit_margin'] = 0
         except Exception as e:
-            print(f"[ERROR] 更新筛选器失败: {e}")
+            print(f"[WARN] 计算预估失败: {e}")
     
     def _populate_order_list_table(self, orders):
         """填充订单列表表格（下半部分）"""
