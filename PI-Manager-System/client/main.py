@@ -4439,9 +4439,9 @@ class MainWindow(QMainWindow):
         
         # 订单列表表格（主索引 - 按订单号分组）
         self.order_list_table = QTableWidget()
-        self.order_list_table.setColumnCount(6)
+        self.order_list_table.setColumnCount(7)
         self.order_list_table.setHorizontalHeaderLabels([
-            "选择", "ORDER NO.", "客户", "订单日期", "总金额", "状态"
+            "选择", "ORDER NO.", "客户", "订单日期", "产品数", "总金额", "状态"
         ])
         self.order_list_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.order_list_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -4455,7 +4455,8 @@ class MainWindow(QMainWindow):
         """)
         self.order_list_table.setColumnWidth(0, 50)  # 选择列
         self.order_list_table.setColumnWidth(3, 100)  # 日期列
-        self.order_list_table.setColumnWidth(5, 80)   # 状态列
+        self.order_list_table.setColumnWidth(4, 60)   # 产品数列
+        self.order_list_table.setColumnWidth(6, 80)   # 状态列
         # 绑定点击事件
         self.order_list_table.cellClicked.connect(self._on_order_list_click)
         # 双击编辑
@@ -4558,157 +4559,114 @@ class MainWindow(QMainWindow):
             self._order_summary_filtered[self._selected_order_index] = order
     
     def _show_order_detail(self, order):
-        """显示订单详情 - 使用原有的41列完整格式"""
+        """显示订单详情 - 支持多产品显示"""
         self.order_detail_hint.hide()
         
         # 清空详情表格
         self.order_detail_table.setRowCount(0)
         self.order_detail_table.setSortingEnabled(False)
         
-        # 插入一行显示选中订单的完整信息
-        row = self.order_detail_table.rowCount()
-        self.order_detail_table.insertRow(row)
+        # 获取该订单下的所有产品
+        items = order.get('items', [])
+        if not items:
+            # 如果没有items，创建一个空行显示订单信息
+            items = [{}]
         
-        # 填充所有41列数据
-        self.order_detail_table.setItem(row, 0, QTableWidgetItem(order.get('order_date', '')))                    # 订单日期
-        self.order_detail_table.setItem(row, 1, QTableWidgetItem(order.get('order_no', '')))                     # ORDER NO.
-        self.order_detail_table.setItem(row, 2, QTableWidgetItem(order.get('customer_product_code', '')))         # 客户产品编号
-        self.order_detail_table.setItem(row, 3, QTableWidgetItem(order.get('oe_number', '')))                     # OE号
+        # 显示订单头信息（第一行）
+        order_row = self.order_detail_table.rowCount()
+        self.order_detail_table.insertRow(order_row)
         
-        # 客户需求备注
-        self.order_detail_table.setItem(row, 4, QTableWidgetItem(order.get('customer_requirement', '')))
+        # 合并单元格显示订单基本信息
+        order_info = f"📋 订单: {order.get('order_no', '')} | 客户: {order.get('customer_name', '')} | 共 {len(items)} 个产品"
+        order_info_item = QTableWidgetItem(order_info)
+        order_info_item.setBackground(QBrush(QColor("#dbeafe")))  # 浅蓝色背景
+        order_info_item.setFont(QFont("", 10, QFont.Weight.Bold))
+        self.order_detail_table.setItem(order_row, 0, order_info_item)
         
-        # 产品名称
-        self.order_detail_table.setItem(row, 5, QTableWidgetItem(order.get('product_name', '')))
+        # 合并1-5列作为订单信息
+        self.order_detail_table.setItem(order_row, 1, QTableWidgetItem(order.get('order_date', '')))
+        self.order_detail_table.setItem(order_row, 2, QTableWidgetItem(order.get('customer_name', '')))
+        self.order_detail_table.setItem(order_row, 3, QTableWidgetItem(f"{len(items)} 个产品"))
+        self.order_detail_table.setItem(order_row, 4, QTableWidgetItem(order.get('status', '进行中')))
         
-        # 图片列（显示产品图片缩略图）
-        from PySide6.QtWidgets import QLabel
-        image_label = QLabel()
-        image_label.setFixedSize(56, 56)
-        image_label.setAlignment(Qt.AlignCenter)
-        image_label.setStyleSheet("border: 1px solid #e5e7eb;")
-        image_url = order.get('image', '')
-        if image_url:
-            try:
-                image_data = urllib.request.urlopen(image_url).read()
-                image = QImage.fromData(image_data)
-                pixmap = QPixmap.fromImage(image).scaled(52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                image_label.setPixmap(pixmap)
-            except:
-                image_label.setText("暂无")
-        else:
-            image_label.setText("暂无")
-        self.order_detail_table.setCellWidget(row, 6, image_label)                                              # 图片
-        
-        self.order_detail_table.setItem(row, 7, QTableWidgetItem(order.get('customer_model', '')))              # 客户型号
-        self.order_detail_table.setItem(row, 8, QTableWidgetItem(order.get('oe_number', '')))                  # OE号.1
-        self.order_detail_table.setItem(row, 9, QTableWidgetItem(str(order.get('quantity', 0))))              # 数量
-        
-        # 报价
-        currency = order.get('currency', 'USD')
-        unit_price = order.get('unit_price', 0)
-        self.order_detail_table.setItem(row, 10, QTableWidgetItem(f"{unit_price} {currency}"))                # 报价
-        self.order_detail_table.setItem(row, 11, QTableWidgetItem(str(order.get('total_amount', 0))))          # 合计金额
-        
-        # 客户最新回复
-        self.order_detail_table.setItem(row, 12, QTableWidgetItem(order.get('customer_reply', '')))
-        
-        # 客户预付款
-        self.order_detail_table.setItem(row, 13, QTableWidgetItem(str(order.get('customer_prepayment', 0))))
-        
-        # 待收尾款
-        remaining = order.get('remaining_payment', 0)
-        remaining_item = QTableWidgetItem(str(remaining))
-        if remaining > 0:
-            remaining_item.setForeground(QBrush(QColor("#ef4444")))
-        self.order_detail_table.setItem(row, 14, remaining_item)
-        
-        # 预估美金报价（使用全局变量计算）
-        factory_rmb = order.get('purchase_price', 0) or 0
-        if factory_rmb > 0:
-            estimated_usd = self.calculate_estimated_usd_price(factory_rmb)
-            self.order_detail_table.setItem(row, 15, QTableWidgetItem(f"{estimated_usd:.2f} USD"))
-        else:
-            self.order_detail_table.setItem(row, 15, QTableWidgetItem("-"))
-        
-        # 预估毛利率
+        # 订单级别汇总金额
         total_amount = order.get('total_amount', 0) or 0
-        if total_amount > 0 and factory_rmb > 0:
-            customer_usd = total_amount
-            profit_margin = self.calculate_order_profit_margin(customer_usd, factory_rmb)
-            profit_item = QTableWidgetItem(f"{profit_margin:.1f}%")
-            if profit_margin > 0:
-                profit_item.setForeground(QBrush(QColor("#10b981")))
-            self.order_detail_table.setItem(row, 16, profit_item)
-        else:
-            self.order_detail_table.setItem(row, 16, QTableWidgetItem("-"))
+        currency = order.get('currency', 'USD')
+        self.order_detail_table.setItem(order_row, 5, QTableWidgetItem(f"{total_amount} {currency}"))
+        self.order_detail_table.setItem(order_row, 6, QTableWidgetItem(str(order.get('customer_prepayment', 0))))
+        self.order_detail_table.setItem(order_row, 7, QTableWidgetItem(str(order.get('remaining_payment', 0))))
         
-        self.order_detail_table.setItem(row, 17, QTableWidgetItem(str(order.get('purchase_price', 0))))        # 采购价格
-        self.order_detail_table.setItem(row, 18, QTableWidgetItem(str(order.get('shipping_fee', 0))))          # 运费
-        self.order_detail_table.setItem(row, 19, QTableWidgetItem(str(order.get('misc_fee', 0))))             # 杂费
-        
-        # 总金额
-        self.order_detail_table.setItem(row, 20, QTableWidgetItem(str(order.get('total_amount', 0))))
-        
-        # 工厂简称
-        self.order_detail_table.setItem(row, 21, QTableWidgetItem(order.get('supplier_name', '')))
-        
-        # 店铺链接
-        self.order_detail_table.setItem(row, 22, QTableWidgetItem(order.get('supplier_link', '')))
-        
-        # 交货日期
-        self.order_detail_table.setItem(row, 23, QTableWidgetItem(order.get('delivery_date', '')))
-        
-        # 是否已收货
-        self.order_detail_table.setItem(row, 24, QTableWidgetItem(order.get('is_received', '否')))
-        
-        # 工厂订金
-        self.order_detail_table.setItem(row, 25, QTableWidgetItem(str(order.get('supplier_deposit', 0))))
-        
-        # 工厂尾款
-        self.order_detail_table.setItem(row, 26, QTableWidgetItem(str(order.get('supplier_balance', 0))))
-        
-        # 入库操作
-        self.order_detail_table.setItem(row, 27, QTableWidgetItem(order.get('storage_status', '')))
-        
-        # 入库数量
-        self.order_detail_table.setItem(row, 28, QTableWidgetItem(str(order.get('storage_quantity', 0))))
-        
-        # 包装方式
-        self.order_detail_table.setItem(row, 29, QTableWidgetItem(order.get('packaging', '')))
-        
-        # 采购选项/名称
-        self.order_detail_table.setItem(row, 30, QTableWidgetItem(""))
-        
-        # 产品细节
-        self.order_detail_table.setItem(row, 31, QTableWidgetItem(order.get('product_spec', '')))
-        
-        # 工厂编号
-        self.order_detail_table.setItem(row, 32, QTableWidgetItem(order.get('factory_code', '')))
-        
-        # 纸箱尺寸
-        self.order_detail_table.setItem(row, 33, QTableWidgetItem(order.get('carton_size', '')))
-        
-        # 打包规格
-        self.order_detail_table.setItem(row, 34, QTableWidgetItem(order.get('packing_spec', '')))
-        
-        # 箱数
-        self.order_detail_table.setItem(row, 35, QTableWidgetItem(str(order.get('carton_count', 0))))
-        
-        # 预估体积
-        self.order_detail_table.setItem(row, 36, QTableWidgetItem(order.get('estimated_volume', '')))
-        
-        # 整箱毛重
-        self.order_detail_table.setItem(row, 37, QTableWidgetItem(order.get('carton_gross_weight', '')))
-        
-        # 总重量
-        self.order_detail_table.setItem(row, 38, QTableWidgetItem(order.get('total_weight', '')))
-        
-        # 品牌
-        self.order_detail_table.setItem(row, 39, QTableWidgetItem(order.get('brand', '')))
-        
-        # 开票情况
-        self.order_detail_table.setItem(row, 40, QTableWidgetItem(order.get('invoice_status', '')))
+        # 为每个产品显示一行
+        for idx, item in enumerate(items):
+            row = self.order_detail_table.rowCount()
+            self.order_detail_table.insertRow(row)
+            
+            # 产品序号
+            self.order_detail_table.setItem(row, 0, QTableWidgetItem(f"#{idx + 1}"))
+            
+            # 产品基本信息
+            self.order_detail_table.setItem(row, 1, QTableWidgetItem(order.get('order_no', '')))                    # ORDER NO.
+            self.order_detail_table.setItem(row, 2, QTableWidgetItem(item.get('customer_code', '')))               # 客户产品编号
+            self.order_detail_table.setItem(row, 3, QTableWidgetItem(item.get('oe_number', '')))                  # OE号
+            self.order_detail_table.setItem(row, 4, QTableWidgetItem(item.get('remark', '')))                     # 客户需求备注
+            
+            # 产品名称
+            self.order_detail_table.setItem(row, 5, QTableWidgetItem(item.get('product_name', '')))
+            
+            # 图片列
+            from PySide6.QtWidgets import QLabel
+            image_label = QLabel()
+            image_label.setFixedSize(56, 56)
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setStyleSheet("border: 1px solid #e5e7eb;")
+            image_url = item.get('image_url', '') or item.get('image', '')
+            if image_url:
+                try:
+                    image_data = urllib.request.urlopen(image_url).read()
+                    image = QImage.fromData(image_data)
+                    pixmap = QPixmap.fromImage(image).scaled(52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    image_label.setPixmap(pixmap)
+                except:
+                    image_label.setText("暂无")
+            else:
+                image_label.setText("暂无")
+            self.order_detail_table.setCellWidget(row, 6, image_label)
+            
+            self.order_detail_table.setItem(row, 7, QTableWidgetItem(item.get('customer_model', '')))              # 客户型号
+            self.order_detail_table.setItem(row, 8, QTableWidgetItem(item.get('oe_number', '')))                  # OE号.1
+            
+            # 数量和价格
+            quantity = item.get('quantity', 0) or 0
+            unit_price = item.get('unit_price', 0) or 0
+            self.order_detail_table.setItem(row, 9, QTableWidgetItem(str(quantity)))                               # 数量
+            self.order_detail_table.setItem(row, 10, QTableWidgetItem(f"{unit_price} {currency}"))                # 报价
+            self.order_detail_table.setItem(row, 11, QTableWidgetItem(str(quantity * unit_price)))                # 合计金额
+            
+            # 客户回复
+            self.order_detail_table.setItem(row, 12, QTableWidgetItem(item.get('customer_reply', '')))
+            
+            # 采购信息
+            self.order_detail_table.setItem(row, 17, QTableWidgetItem(str(item.get('purchase_price', 0))))         # 采购价格
+            self.order_detail_table.setItem(row, 18, QTableWidgetItem(str(item.get('shipping_fee', 0))))          # 运费
+            
+            # 品牌
+            self.order_detail_table.setItem(row, 39, QTableWidgetItem(item.get('brand', '')))
+            
+            # 预估计算（基于采购价格）
+            factory_rmb = item.get('purchase_price', 0) or 0
+            if factory_rmb > 0:
+                # 预估美金报价
+                estimated_usd = self.calculate_estimated_usd_price(factory_rmb)
+                self.order_detail_table.setItem(row, 15, QTableWidgetItem(f"{estimated_usd:.2f} USD"))
+                
+                # 预估毛利率
+                item_total = quantity * unit_price
+                if item_total > 0:
+                    profit_margin = self.calculate_order_profit_margin(item_total, factory_rmb)
+                    profit_item = QTableWidgetItem(f"{profit_margin:.1f}%")
+                    if profit_margin > 0:
+                        profit_item.setForeground(QBrush(QColor("#10b981")))
+                    self.order_detail_table.setItem(row, 16, profit_item)
         
         self.order_detail_table.setSortingEnabled(True)
     
@@ -4947,14 +4905,21 @@ class MainWindow(QMainWindow):
             # 3: 订单日期
             self.order_list_table.setItem(row, 3, QTableWidgetItem(order.get('order_date', '')))
             
-            # 4: 总金额
+            # 4: 产品数量
+            items = order.get('items', [])
+            product_count = len(items) if items else (1 if order.get('product_name') else 0)
+            count_item = QTableWidgetItem(str(product_count))
+            count_item.setTextAlignment(Qt.AlignCenter)
+            self.order_list_table.setItem(row, 4, count_item)
+            
+            # 5: 总金额
             currency = order.get('currency', 'USD')
             total = order.get('total_amount', 0)
             amount_item = QTableWidgetItem(f"{total} {currency}")
             amount_item.setTextAlignment(Qt.AlignRight)
-            self.order_list_table.setItem(row, 4, amount_item)
+            self.order_list_table.setItem(row, 5, amount_item)
             
-            # 5: 状态
+            # 6: 状态
             status = order.get('status', '进行中')
             status_item = QTableWidgetItem(status)
             if '完成' in status:
@@ -4963,7 +4928,7 @@ class MainWindow(QMainWindow):
                 status_item.setForeground(QBrush(QColor("#ef4444")))  # 红色
             else:
                 status_item.setForeground(QBrush(QColor("#3b82f6")))  # 蓝色
-            self.order_list_table.setItem(row, 5, status_item)
+            self.order_list_table.setItem(row, 6, status_item)
         
         self.order_list_table.setSortingEnabled(True)
     
