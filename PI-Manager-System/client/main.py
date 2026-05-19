@@ -4380,8 +4380,16 @@ class MainWindow(QMainWindow):
             "采购选项/名称", "产品细节", "工厂编号", "纸箱尺寸", "打包规格",
             "箱数", "预估体积", "整箱毛重", "总重量", "品牌", "开票情况"
         ])
-        self.order_detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.order_detail_table.setColumnWidth(6, 60)  # 图片列
+        self.order_detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # 设置关键列宽度
+        self.order_detail_table.setColumnWidth(0, 40)   # 序号/标记列
+        self.order_detail_table.setColumnWidth(1, 100)  # ORDER NO.
+        self.order_detail_table.setColumnWidth(2, 100)  # 客户产品编号/客户
+        self.order_detail_table.setColumnWidth(3, 100)  # OE号/总金额
+        self.order_detail_table.setColumnWidth(4, 120)  # 备注/状态
+        self.order_detail_table.setColumnWidth(5, 120)  # 产品名称/预付款
+        self.order_detail_table.setColumnWidth(6, 60)   # 图片列
+        self.order_detail_table.setColumnWidth(9, 60)   # 数量列
         self.order_detail_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.order_detail_table.setAlternatingRowColors(True)
         self.order_detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
