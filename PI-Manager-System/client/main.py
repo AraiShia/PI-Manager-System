@@ -4382,14 +4382,21 @@ class MainWindow(QMainWindow):
         ])
         self.order_detail_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         # 设置关键列宽度
-        self.order_detail_table.setColumnWidth(0, 40)   # 序号/标记列
-        self.order_detail_table.setColumnWidth(1, 100)  # ORDER NO.
-        self.order_detail_table.setColumnWidth(2, 100)  # 客户产品编号/客户
-        self.order_detail_table.setColumnWidth(3, 100)  # OE号/总金额
-        self.order_detail_table.setColumnWidth(4, 120)  # 备注/状态
-        self.order_detail_table.setColumnWidth(5, 120)  # 产品名称/预付款
-        self.order_detail_table.setColumnWidth(6, 60)   # 图片列
-        self.order_detail_table.setColumnWidth(9, 60)   # 数量列
+        self.order_detail_table.setColumnWidth(0, 60)   # 序号/标记列
+        self.order_detail_table.setColumnWidth(1, 150)  # ORDER NO.
+        self.order_detail_table.setColumnWidth(2, 150)  # 客户产品编号/客户
+        self.order_detail_table.setColumnWidth(3, 150)  # OE号/总金额
+        self.order_detail_table.setColumnWidth(4, 200)  # 备注/状态
+        self.order_detail_table.setColumnWidth(5, 200)  # 产品名称/预付款
+        self.order_detail_table.setColumnWidth(6, 80)   # 图片列
+        self.order_detail_table.setColumnWidth(7, 120)  # 客户型号
+        self.order_detail_table.setColumnWidth(9, 80)   # 数量列
+        self.order_detail_table.setColumnWidth(10, 100) # 报价列
+        self.order_detail_table.setColumnWidth(11, 100) # 合计金额
+        self.order_detail_table.setColumnWidth(15, 120) # 预估美金报价
+        self.order_detail_table.setColumnWidth(16, 100) # 预估毛利率
+        self.order_detail_table.setColumnWidth(17, 120) # 采购价格
+        self.order_detail_table.setColumnWidth(18, 100) # 运费
         self.order_detail_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.order_detail_table.setAlternatingRowColors(True)
         self.order_detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -4627,7 +4634,7 @@ class MainWindow(QMainWindow):
             # 图片列
             from PySide6.QtWidgets import QLabel
             image_label = QLabel()
-            image_label.setFixedSize(56, 56)
+            image_label.setFixedSize(74, 74)
             image_label.setAlignment(Qt.AlignCenter)
             image_label.setStyleSheet("border: 1px solid #e5e7eb;")
             image_url = item.get('image_url', '') or item.get('image', '')
@@ -4635,7 +4642,7 @@ class MainWindow(QMainWindow):
                 try:
                     image_data = urllib.request.urlopen(image_url).read()
                     image = QImage.fromData(image_data)
-                    pixmap = QPixmap.fromImage(image).scaled(52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    pixmap = QPixmap.fromImage(image).scaled(68, 68, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     image_label.setPixmap(pixmap)
                 except:
                     image_label.setText("暂无")
