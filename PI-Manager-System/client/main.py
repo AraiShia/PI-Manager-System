@@ -5043,21 +5043,41 @@ class MainWindow(QMainWindow):
             
             print(f"[INFO] 订单总表: 映射 {len(customers)} 客户, {len(products)} 产品, {len(suppliers)} 供应商")
             
+            # 并发获取PI详情（大幅提升性能）
+            print("[INFO] 订单总表: 开始获取PI详情...")
+            pi_details = {}
+            
+            def fetch_pi_detail(pi):
+                try:
+                    pi_id = pi.get('id')
+                    if pi_id:
+                        return pi_id, self.api_client.get_pi_detail(pi_id)
+                except:
+                    pass
+                return None, None
+            
+            # 使用线程池并发获取
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {executor.submit(fetch_pi_detail, pi): pi for pi in pi_list}
+                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                    pi_id, detail = future.result()
+                    if pi_id and detail:
+                        pi_details[pi_id] = detail
+                    if (i + 1) % 10 == 0:
+                        print(f"[INFO] 订单总表: 已获取 {i + 1}/{len(pi_list)} 条PI详情")
+            
+            print(f"[INFO] 订单总表: 获取到 {len(pi_details)} 条PI详情")
+            
             # 构建订单列表
+            print("[INFO] 订单总表: 开始构建订单...")
             orders = []
             for pi in pi_list:
                 try:
-                    # 获取PI详情
                     pi_id = pi.get('id')
-                    pi_detail = None
-                    if pi_id:
-                        try:
-                            pi_detail = self.api_client.get_pi_detail(pi_id)
-                        except Exception as e:
-                            print(f"[WARN] 获取PI详情失败: {e}")
+                    pi_detail = pi_details.get(pi_id) or pi
                     
                     order = self._build_order_summary_row(
-                        pi_detail or pi, 
+                        pi_detail, 
                         purchase_list, 
                         shipment_list, 
                         customer_payment_list, 
