@@ -4801,10 +4801,14 @@ class MainWindow(QMainWindow):
             self.order_detail_table.setItem(row, 4, QTableWidgetItem(item.get('remark', '')))                       # 客户需求备注
             self.order_detail_table.setItem(row, 5, QTableWidgetItem(item.get('product_name', '')))                 # 产品名称
             
-            # 图片列 - 延迟加载（提高性能）
-            from PySide6.QtWidgets import QLabel
+            # 图片列 - 使用统一的异步加载方法
+            image_label = QLabel()
+            image_label.setFixedSize(84, 84)
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setStyleSheet("border: 1px solid #e5e7eb; background-color: #f9fafb;")
+            image_label.setCursor(Qt.CursorShape.PointingHandCursor)
             
-            # 获取图片URL（不阻塞加载）
+            # 获取图片URL
             image_url = (
                 item.get('image_url') or 
                 item.get('image') or 
@@ -4815,13 +4819,12 @@ class MainWindow(QMainWindow):
                 order.get('product_image')
             )
             
-            image_label = QLabel()
-            image_label.setFixedSize(84, 84)
-            image_label.setAlignment(Qt.AlignCenter)
-            image_label.setStyleSheet("border: 1px solid #e5e7eb; background-color: #f9fafb;")
-            image_label.setText("加载中...")
-            image_label.setProperty("image_url", str(image_url) if image_url else "")
-            image_label.setProperty("loaded", "false")
+            # 使用产品管理相同的异步加载方法
+            if image_url:
+                self.load_image_async(image_label, str(image_url))
+            else:
+                image_label.setText("暂无图片")
+            
             self.order_detail_table.setCellWidget(row, 6, image_label)
             
             self.order_detail_table.setItem(row, 7, QTableWidgetItem(item.get('customer_model', '')))              # 客户型号
@@ -4929,85 +4932,6 @@ class MainWindow(QMainWindow):
             "导入功能", 
             "导入功能开发中...\n\n字段识别规则待配置。\n请查看代码中的注释示例。"
         )
-    
-    def _load_images_async(self, orders):
-        """异步加载图片（不阻塞UI，使用定时器分批加载）"""
-        print("[INFO] 开始异步加载图片...")
-        
-        # 收集所有需要加载的图片
-        self._image_load_queue = []
-        for order in orders:
-            items = order.get('items', [])
-            for item in items:
-                image_url = (
-                    item.get('image_url') or 
-                    item.get('image') or 
-                    item.get('product_image') or 
-                    item.get('pic_url') or
-                    order.get('image_url') or 
-                    order.get('image') or
-                    order.get('product_image')
-                )
-                if image_url and str(image_url).strip():
-                    self._image_load_queue.append(str(image_url))
-        
-        # 去重
-        self._image_load_queue = list(dict.fromkeys(self._image_load_queue))
-        print(f"[INFO] 需要加载 {len(self._image_load_queue)} 张图片")
-        
-        # 开始分批加载
-        self._load_next_batch()
-    
-    def _load_next_batch(self):
-        """分批加载下一批图片（每次最多3张）"""
-        if not self._image_load_queue:
-            print("[INFO] 图片加载完成")
-            return
-        
-        # 每次加载3张
-        batch = self._image_load_queue[:3]
-        self._image_load_queue = self._image_load_queue[3:]
-        
-        def load_batch():
-            cache = {}
-            for url in batch:
-                try:
-                    image_data = urllib.request.urlopen(url, timeout=3).read()
-                    image = QImage.fromData(image_data)
-                    if image:
-                        pixmap = QPixmap.fromImage(image).scaled(78, 78, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        cache[url] = pixmap
-                except:
-                    pass
-            return cache
-        
-        class BatchLoader(QThread):
-            done = Signal(dict)
-            def run(self):
-                self.done.emit(load_batch())
-        
-        def on_batch_done(cache):
-            if cache:
-                # 更新表格中的图片
-                self._update_loaded_images(cache)
-            # 继续加载下一批
-            if self._image_load_queue:
-                QTimer.singleShot(100, self._load_next_batch)
-        
-        loader = BatchLoader(self)
-        loader.done.connect(on_batch_done)
-        loader.start()
-    
-    def _update_loaded_images(self, cache):
-        """更新已加载的图片到表格"""
-        for url, pixmap in cache.items():
-            # 遍历表格查找对应的图片label并更新
-            for row in range(self.order_detail_table.rowCount()):
-                widget = self.order_detail_table.cellWidget(row, 6)
-                if widget and hasattr(widget, 'property'):
-                    if widget.property("image_url") == url and widget.property("loaded") != "true":
-                        widget.setPixmap(pixmap)
-                        widget.setProperty("loaded", "true")
     
     def load_order_summary(self):
         """加载订单总表数据"""
@@ -5150,9 +5074,6 @@ class MainWindow(QMainWindow):
             self._order_summary_status.setText(f"共 {len(orders)} 条订单")
             self._hide_loading_tip()
             print("[INFO] 订单总表: 加载完成")
-            
-            # 异步延迟加载图片（在UI更新完成后，使用定时器分批加载）
-            QTimer.singleShot(500, lambda: self._load_images_async(orders))
             
         except Exception as e:
             print(f"[ERROR] 订单总表: 处理失败: {e}")
