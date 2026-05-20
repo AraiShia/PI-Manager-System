@@ -5173,12 +5173,25 @@ class MainWindow(QMainWindow):
         
         # 从 items 中获取产品信息（PI detail 包含 items）
         items = pi.get('items', [])
+        print(f"[DEBUG] 订单总表: items数量={len(items)}")
         first_item = items[0] if items else {}
-        product_id = first_item.get('product_id')
-        quantity = first_item.get('quantity', 0)
-        unit_price = first_item.get('unit_price', 0)
-        oe_number = first_item.get('oe_number', '')
-        remark = first_item.get('remark', '')
+        print(f"[DEBUG] 订单总表: first_item keys={list(first_item.keys())}")
+        
+        # 尝试多种可能的字段名
+        product_id = (
+            first_item.get('product_id') or 
+            first_item.get('id') or 
+            first_item.get('product') or
+            first_item.get('product_code')
+        )
+        print(f"[DEBUG] 订单总表: 解析product_id={product_id}, 类型={type(product_id)}")
+        
+        quantity = first_item.get('quantity', 0) or 0
+        unit_price = first_item.get('unit_price', 0) or 0
+        oe_number = first_item.get('oe_number', '') or ''
+        remark = first_item.get('remark', '') or ''
+        
+        print(f"[DEBUG] 订单总表: quantity={quantity}, unit_price={unit_price}, oe={oe_number}")
         
         # 使用传入的字典快速查找产品
         product = products.get(product_id) if product_id else None
@@ -5272,6 +5285,7 @@ class MainWindow(QMainWindow):
             'oe_number_list': oe_list,  # 完整OE列表，用于弹窗显示
             'oe_count': len(oe_list),  # OE数量
             'customer_requirement': remark,
+            'items': items,  # 保存完整的产品列表
             # 产品名使用 product_code 或 detail_desc
             'product_name': product.get('product_code', '') if product else (product.get('detail_desc', '') if product else ''),
             'product_code': product.get('product_code', '') if product else '',
