@@ -462,91 +462,137 @@ class FieldEditDialog(QDialog):
 
 class OrderEditDialog(QDialog):
     """订单编辑对话框"""
-    def __init__(self, order, parent=None):
+    def __init__(self, order, parent=None, customers=None, suppliers=None, products=None):
         super().__init__(parent)
         self.order = order
         self.updated_order = order.copy()
-        self.setWindowTitle(f"编辑订单: {order.get('order_no', '新建订单')}")
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(500)
+        self.customers = customers or []
+        self.suppliers = suppliers or []
+        self.products = products or []
+        
+        # 生成订单号（如果没有）
+        if not self.order.get('order_no'):
+            from datetime import datetime
+            self.order['order_no'] = f"PI-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        # 设置默认日期
+        if not self.order.get('order_date'):
+            from datetime import datetime
+            self.order['order_date'] = datetime.now().strftime('%Y-%m-%d')
+        
+        self.setWindowTitle(f"编辑订单: {self.order.get('order_no', '新建订单')}")
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(600)
         self.init_ui()
     
     def init_ui(self):
         layout = QVBoxLayout(self)
         
-        # 可编辑字段列表
-        editable_fields = [
-            ("ORDER NO.", "order_no", "line"),
-            ("客户", "customer_name", "line"),
-            ("订单日期", "order_date", "line"),
-            ("客户产品编号", "customer_product_code", "line"),
-            ("OE号", "oe_number", "line"),
-            ("产品名称", "product_name", "line"),
-            ("客户型号", "customer_model", "line"),
-            ("数量", "quantity", "number"),
-            ("单价", "unit_price", "number"),
-            ("总金额", "total_amount", "number"),
-            ("客户预付款", "customer_prepayment", "number"),
-            ("待收尾款", "remaining_payment", "number"),
-            ("采购价格", "purchase_price", "number"),
-            ("运费", "shipping_fee", "number"),
-            ("杂费", "misc_fee", "number"),
-            ("工厂简称", "supplier_name", "line"),
-            ("店铺链接", "supplier_link", "line"),
-            ("交货日期", "delivery_date", "line"),
-            ("客户需求备注", "customer_requirement", "text"),
-            ("客户最新回复", "customer_reply", "text"),
-            ("品牌", "brand", "line"),
-            ("开票情况", "invoice_status", "line"),
-        ]
+        # ========== 订单基本信息 ==========
+        info_group = QGroupBox("📋 订单基本信息")
+        info_layout = QGridLayout()
         
-        # 创建滚动区域
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll_widget = QWidget()
-        scroll_layout = QFormLayout(scroll_widget)
-        scroll_layout.setLabelAlignment(Qt.AlignRight)
-        scroll_layout.setHorizontalSpacing(20)
-        scroll_layout.setVerticalSpacing(10)
+        # ORDER NO.（只读，自动生成）
+        info_layout.addWidget(QLabel("ORDER NO.:"), 0, 0)
+        order_no_input = QLineEdit(self.order.get('order_no', ''))
+        order_no_input.setReadOnly(True)
+        order_no_input.setStyleSheet("background-color: #f3f4f6;")
+        info_layout.addWidget(order_no_input, 0, 1)
         
-        self.editors = {}
-        for label_text, field_key, field_type in editable_fields:
-            value = str(self.order.get(field_key, ''))
+        # 订单日期（只读，自动获取）
+        info_layout.addWidget(QLabel("订单日期:"), 0, 2)
+        date_input = QLineEdit(self.order.get('order_date', ''))
+        date_input.setReadOnly(True)
+        date_input.setStyleSheet("background-color: #f3f4f6;")
+        info_layout.addWidget(date_input, 0, 3)
+        
+        # 客户（下拉选择）
+        info_layout.addWidget(QLabel("客户:"), 1, 0)
+        self.customer_combo = QComboBox()
+        self.customer_combo.addItem("-- 请选择 --", None)
+        for c in self.customers:
+            customer_name = c.get('customer_name', '') or c.get('name', '')
+            self.customer_combo.addItem(customer_name, c.get('id'))
+        current_customer_id = self.order.get('customer_id')
+        for i in range(self.customer_combo.count()):
+            if self.customer_combo.itemData(i) == current_customer_id:
+                self.customer_combo.setCurrentIndex(i)
+                break
+        info_layout.addWidget(self.customer_combo, 1, 1, 1, 3)
+        
+        # 工厂简称（供应商下拉选择）
+        info_layout.addWidget(QLabel("工厂简称:"), 2, 0)
+        self.supplier_combo = QComboBox()
+        self.supplier_combo.addItem("-- 请选择 --", None)
+        for s in self.suppliers:
+            supplier_name = s.get('supplier_name', '') or s.get('name', '')
+            self.supplier_combo.addItem(supplier_name, s.get('id'))
+        current_supplier_id = self.order.get('supplier_id')
+        for i in range(self.supplier_combo.count()):
+            if self.supplier_combo.itemData(i) == current_supplier_id:
+                self.supplier_combo.setCurrentIndex(i)
+                break
+        info_layout.addWidget(self.supplier_combo, 2, 1, 1, 3)
+        
+        info_group.setLayout(info_layout)
+        layout.addWidget(info_group)
+        
+        # ========== 产品列表 ==========
+        product_group = QGroupBox("📦 产品列表（双击行编辑）")
+        product_layout = QVBoxLayout()
+        
+        # 产品表格
+        self.product_table = QTableWidget()
+        self.product_table.setColumnCount(8)
+        self.product_table.setHorizontalHeaderLabels([
+            "客户产品编号", "OE号", "产品名称", "客户型号", "数量", "单价", "总金额", "操作"
+        ])
+        self.product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.product_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.product_table.verticalHeader().setDefaultSectionSize(50)
+        
+        # 填充产品数据
+        items = self.order.get('items', [])
+        if not items:
+            items = [{'id': None, 'product_name': '', 'oe_number': '', 'customer_product_code': '', 'customer_model': '', 'quantity': 0, 'unit_price': 0}]
+        
+        for idx, item in enumerate(items):
+            row = self.product_table.rowCount()
+            self.product_table.insertRow(row)
             
-            if field_type == "line":
-                editor = QLineEdit(value)
-                editor.setFixedHeight(30)
-            elif field_type == "number":
-                editor = QDoubleSpinBox()
-                editor.setRange(0, 99999999)
-                editor.setDecimals(2)
-                try:
-                    editor.setValue(float(value) if value else 0)
-                except:
-                    editor.setValue(0)
-            elif field_type == "text":
-                editor = QTextEdit(value)
-                editor.setMinimumHeight(60)
-                editor.setMaximumHeight(100)
+            self.product_table.setItem(row, 0, QTableWidgetItem(item.get('customer_product_code', '')))  # 客户产品编号
+            self.product_table.setItem(row, 1, QTableWidgetItem(item.get('oe_number', '')))  # OE号
+            self.product_table.setItem(row, 2, QTableWidgetItem(item.get('product_name', '')))  # 产品名称
+            self.product_table.setItem(row, 3, QTableWidgetItem(item.get('customer_model', '')))  # 客户型号
+            self.product_table.setItem(row, 4, QTableWidgetItem(str(item.get('quantity', 0))))  # 数量
+            self.product_table.setItem(row, 5, QTableWidgetItem(str(item.get('unit_price', 0))))  # 单价
+            total = (item.get('quantity', 0) or 0) * (item.get('unit_price', 0) or 0)
+            self.product_table.setItem(row, 6, QTableWidgetItem(f"{total:.2f}"))  # 总金额
             
-            self.editors[field_key] = editor
-            scroll_layout.addRow(f"{label_text}:", editor)
+            # 操作按钮
+            edit_btn = QPushButton("编辑")
+            edit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #3b82f6;
+                    color: white;
+                    border: none;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover { background-color: #2563eb; }
+            """)
+            edit_btn.clicked.connect(lambda checked, r=row, itm=item: self._edit_product_item(r, itm))
+            self.product_table.setCellWidget(row, 7, edit_btn)
         
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
+        # 双击行编辑
+        self.product_table.cellDoubleClicked.connect(self._on_product_cell_double_click)
         
-        # 按钮
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+        product_layout.addWidget(self.product_table)
         
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setFixedWidth(80)
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(cancel_btn)
-        
-        save_btn = QPushButton("保存")
-        save_btn.setFixedWidth(80)
-        save_btn.setStyleSheet("""
+        # 添加产品按钮
+        add_product_btn = QPushButton("+ 添加产品")
+        add_product_btn.clicked.connect(self._add_product_item)
+        add_product_btn.setStyleSheet("""
             QPushButton {
                 background-color: #10b981;
                 color: white;
@@ -556,24 +602,325 @@ class OrderEditDialog(QDialog):
             }
             QPushButton:hover { background-color: #059669; }
         """)
+        product_layout.addWidget(add_product_btn)
+        
+        product_group.setLayout(product_layout)
+        layout.addWidget(product_group)
+        
+        # ========== 客户最新回复（独立模块） ==========
+        reply_group = QGroupBox("💬 客户最新回复")
+        reply_layout = QVBoxLayout()
+        
+        # 显示最新回复和历史按钮
+        reply_info_layout = QHBoxLayout()
+        latest_reply = self.order.get('customer_reply', '') or '暂无回复'
+        reply_info_layout.addWidget(QLabel(f"最新回复: {latest_reply}"))
+        reply_info_layout.addStretch()
+        
+        history_btn = QPushButton("查看历史记录")
+        history_btn.clicked.connect(self._show_reply_history)
+        history_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6b7280;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #4b5563; }
+        """)
+        reply_info_layout.addWidget(history_btn)
+        
+        reply_layout.addLayout(reply_info_layout)
+        reply_group.setLayout(reply_layout)
+        layout.addWidget(reply_group)
+        
+        # ========== 按钮 ==========
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setFixedWidth(100)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("💾 保存")
+        save_btn.setFixedWidth(100)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #059669; }
+        """)
         save_btn.clicked.connect(self._on_save)
         btn_layout.addWidget(save_btn)
         
         layout.addLayout(btn_layout)
     
+    def _edit_product_item(self, row, item):
+        """编辑单个产品"""
+        print(f"[DEBUG] _edit_product_item: 打开行{row}的编辑对话框, item={item}")
+        dialog = ProductItemEditDialog(item, self.products, self)
+        if dialog.exec():
+            updated_item = dialog.get_item()
+            print(f"[DEBUG] _edit_product_item: 编辑完成, updated_item={updated_item}")
+            # 更新表格
+            self.product_table.setItem(row, 0, QTableWidgetItem(updated_item.get('customer_product_code', '')))
+            self.product_table.setItem(row, 1, QTableWidgetItem(updated_item.get('oe_number', '')))
+            self.product_table.setItem(row, 2, QTableWidgetItem(updated_item.get('product_name', '')))
+            self.product_table.setItem(row, 3, QTableWidgetItem(updated_item.get('customer_model', '')))
+            self.product_table.setItem(row, 4, QTableWidgetItem(str(updated_item.get('quantity', 0))))
+            self.product_table.setItem(row, 5, QTableWidgetItem(str(updated_item.get('unit_price', 0))))
+            total = (updated_item.get('quantity', 0) or 0) * (updated_item.get('unit_price', 0) or 0)
+            self.product_table.setItem(row, 6, QTableWidgetItem(f"{total:.2f}"))
+            print(f"[DEBUG] _edit_product_item: 表格已更新, 行{row}")
+    
+    def _on_product_cell_double_click(self, row, column):
+        """双击产品行打开编辑"""
+        print(f"[DEBUG] _on_product_cell_double_click: 双击行{row}, 列{column}")
+        item = {
+            'customer_product_code': self.product_table.item(row, 0).text() if self.product_table.item(row, 0) else '',
+            'oe_number': self.product_table.item(row, 1).text() if self.product_table.item(row, 1) else '',
+            'product_name': self.product_table.item(row, 2).text() if self.product_table.item(row, 2) else '',
+            'customer_model': self.product_table.item(row, 3).text() if self.product_table.item(row, 3) else '',
+            'quantity': float(self.product_table.item(row, 4).text() if self.product_table.item(row, 4) else 0),
+            'unit_price': float(self.product_table.item(row, 5).text() if self.product_table.item(row, 5) else 0),
+        }
+        self._edit_product_item(row, item)
+    
+    def _add_product_item(self):
+        """添加新产品"""
+        print("[DEBUG] _add_product_item: 打开添加产品对话框")
+        dialog = ProductItemEditDialog({}, self.products, self)
+        if dialog.exec():
+            new_item = dialog.get_item()
+            print(f"[DEBUG] _add_product_item: 添加完成, new_item={new_item}")
+            row = self.product_table.rowCount()
+            self.product_table.insertRow(row)
+            self.product_table.setItem(row, 0, QTableWidgetItem(new_item.get('customer_product_code', '')))
+            self.product_table.setItem(row, 1, QTableWidgetItem(new_item.get('oe_number', '')))
+            self.product_table.setItem(row, 2, QTableWidgetItem(new_item.get('product_name', '')))
+            self.product_table.setItem(row, 3, QTableWidgetItem(new_item.get('customer_model', '')))
+            self.product_table.setItem(row, 4, QTableWidgetItem(str(new_item.get('quantity', 0))))
+            self.product_table.setItem(row, 5, QTableWidgetItem(str(new_item.get('unit_price', 0))))
+            total = (new_item.get('quantity', 0) or 0) * (new_item.get('unit_price', 0) or 0)
+            self.product_table.setItem(row, 6, QTableWidgetItem(f"{total:.2f}"))
+            print(f"[DEBUG] _add_product_item: 已添加新行, 行{row}")
+            
+            edit_btn = QPushButton("编辑")
+            edit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #3b82f6;
+                    color: white;
+                    border: none;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover { background-color: #2563eb; }
+            """)
+            edit_btn.clicked.connect(lambda checked, r=row, itm=new_item: self._edit_product_item(r, itm))
+            self.product_table.setCellWidget(row, 7, edit_btn)
+    
+    def _show_reply_history(self):
+        """显示回复历史记录"""
+        order_no = self.order.get('order_no', '')
+        pi_id = self.order.get('pi_id')
+        if pi_id:
+            replies = self.parent().api_client.get_customer_replies(pi_id) or []
+            dialog = ReplyHistoryDialog(replies, self)
+            dialog.exec()
+    
     def _on_save(self):
-        # 更新订单数据
-        for field_key, editor in self.editors.items():
-            if isinstance(editor, QLineEdit):
-                self.updated_order[field_key] = editor.text()
-            elif isinstance(editor, QDoubleSpinBox):
-                self.updated_order[field_key] = editor.value()
-            elif isinstance(editor, QTextEdit):
-                self.updated_order[field_key] = editor.toPlainText()
+        """保存订单"""
+        print("[DEBUG] OrderEditDialog._on_save: 开始保存订单")
+        
+        # 收集基本信息
+        customer_id = self.customer_combo.currentData()
+        supplier_id = self.supplier_combo.currentData()
+        print(f"[DEBUG] customer_id={customer_id}, supplier_id={supplier_id}")
+        
+        self.updated_order['customer_id'] = customer_id
+        self.updated_order['supplier_id'] = supplier_id
+        
+        # 收集产品列表
+        items = []
+        for row in range(self.product_table.rowCount()):
+            item = {
+                'customer_product_code': self.product_table.item(row, 0).text() if self.product_table.item(row, 0) else '',
+                'oe_number': self.product_table.item(row, 1).text() if self.product_table.item(row, 1) else '',
+                'product_name': self.product_table.item(row, 2).text() if self.product_table.item(row, 2) else '',
+                'customer_model': self.product_table.item(row, 3).text() if self.product_table.item(row, 3) else '',
+                'quantity': float(self.product_table.item(row, 4).text() if self.product_table.item(row, 4) else 0),
+                'unit_price': float(self.product_table.item(row, 5).text() if self.product_table.item(row, 5) else 0),
+            }
+            print(f"[DEBUG] 产品行{row}: {item}")
+            items.append(item)
+        
+        self.updated_order['items'] = items
+        
+        # 计算总金额
+        total = sum((item.get('quantity', 0) or 0) * (item.get('unit_price', 0) or 0) for item in items)
+        self.updated_order['total_amount'] = total
+        print(f"[DEBUG] 总金额: {total}")
+        
+        print(f"[DEBUG] OrderEditDialog._on_save: 保存完成, order_no={self.updated_order.get('order_no')}")
         self.accept()
     
     def get_updated_order(self):
         return self.updated_order
+
+
+class ProductItemEditDialog(QDialog):
+    """产品项编辑对话框"""
+    def __init__(self, item, products, parent=None):
+        super().__init__(parent)
+        self.item = item.copy()
+        self.products = products
+        self.setWindowTitle("编辑产品")
+        self.setMinimumWidth(500)
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # 产品下拉选择（从产品列表读取）
+        product_layout = QHBoxLayout()
+        product_layout.addWidget(QLabel("选择产品:"))
+        self.product_combo = QComboBox()
+        self.product_combo.addItem("-- 请选择 --", None)
+        for p in self.products:
+            product_name = p.get('detail_desc', '') or p.get('name', '')
+            self.product_combo.addItem(product_name, p.get('id'))
+        product_layout.addWidget(self.product_combo)
+        layout.addLayout(product_layout)
+        
+        # 可编辑字段
+        fields = [
+            ("客户产品编号", "customer_product_code", ""),
+            ("OE号", "oe_number", ""),
+            ("产品名称", "product_name", ""),
+            ("客户型号", "customer_model", ""),
+            ("数量", "quantity", "number"),
+            ("单价", "unit_price", "number"),
+        ]
+        
+        self.editors = {}
+        form_layout = QFormLayout()
+        for label, key, field_type in fields:
+            if field_type == "number":
+                editor = QDoubleSpinBox()
+                editor.setRange(0, 99999999)
+                editor.setDecimals(2)
+                try:
+                    val = float(self.item.get(key, 0) or 0)
+                    editor.setValue(val)
+                except:
+                    editor.setValue(0)
+            else:
+                editor = QLineEdit(str(self.item.get(key, '')))
+                editor.setFixedHeight(30)
+            self.editors[key] = editor
+            form_layout.addRow(f"{label}:", editor)
+        
+        layout.addLayout(form_layout)
+        
+        # 按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("保存")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+        """)
+        save_btn.clicked.connect(self._on_save)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        # 产品选择变化时自动填充
+        self.product_combo.currentIndexChanged.connect(self._on_product_selected)
+    
+    def _on_product_selected(self, index):
+        """选择产品后自动填充字段"""
+        product_id = self.product_combo.currentData()
+        if not product_id:
+            return
+        
+        for p in self.products:
+            if p.get('id') == product_id:
+                # 自动填充可用的字段
+                if not self.editors['customer_product_code'].text():
+                    self.editors['customer_product_code'].setText(p.get('product_code', ''))
+                if not self.editors['oe_number'].text():
+                    # 尝试获取主要OE号
+                    oe_list = self.parent().parent().api_client.get_product_oes(product_id) or []
+                    primary_oe = next((oe for oe in oe_list if oe.get('is_primary')), None)
+                    if primary_oe:
+                        self.editors['oe_number'].setText(primary_oe.get('oe_number', ''))
+                if not self.editors['product_name'].text():
+                    self.editors['product_name'].setText(p.get('detail_desc', '') or p.get('name', ''))
+                break
+    
+    def _on_save(self):
+        print("[DEBUG] ProductItemEditDialog._on_save: 开始保存")
+        for key, editor in self.editors.items():
+            if isinstance(editor, QLineEdit):
+                self.item[key] = editor.text()
+                print(f"[DEBUG] 字段 {key}: {editor.text()}")
+            elif isinstance(editor, QDoubleSpinBox):
+                self.item[key] = editor.value()
+                print(f"[DEBUG] 字段 {key}: {editor.value()}")
+        print(f"[DEBUG] ProductItemEditDialog._on_save: 保存完成, item={self.item}")
+        self.accept()
+    
+    def get_item(self):
+        return self.item
+
+
+class ReplyHistoryDialog(QDialog):
+    """客户回复历史记录对话框"""
+    def __init__(self, replies, parent=None):
+        super().__init__(parent)
+        self.replies = replies or []
+        self.setWindowTitle("客户回复历史")
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(400)
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        self.reply_table = QTableWidget()
+        self.reply_table.setColumnCount(4)
+        self.reply_table.setHorizontalHeaderLabels(["时间", "类型", "内容", "状态"])
+        
+        for reply in self.replies:
+            row = self.reply_table.rowCount()
+            self.reply_table.insertRow(row)
+            self.reply_table.setItem(row, 0, QTableWidgetItem(reply.get('created_at', '')[:19]))
+            self.reply_table.setItem(row, 1, QTableWidgetItem(reply.get('reply_type', '')))
+            self.reply_table.setItem(row, 2, QTableWidgetItem(reply.get('reply_content', '')))
+            self.reply_table.setItem(row, 3, QTableWidgetItem(reply.get('status', '')))
+        
+        layout.addWidget(self.reply_table)
+        
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
 
 
 class SettingsDialog(QDialog):
@@ -4705,18 +5052,61 @@ class MainWindow(QMainWindow):
     
     def _open_order_edit_dialog(self, order):
         """打开订单编辑对话框"""
-        dialog = OrderEditDialog(order, self)
+        # 获取客户、供应商和产品列表
+        customers = self.api_client.get_customers() or []
+        suppliers = self.api_client.get_suppliers() or []
+        products = self.api_client.get_products() or []
+        
+        dialog = OrderEditDialog(order, self, customers, suppliers, products)
         if dialog.exec():
             # 保存编辑后的数据
             updated_order = dialog.get_updated_order()
+            print(f"[DEBUG] _open_order_edit_dialog: 准备保存订单, order_no={updated_order.get('order_no')}")
+            
+            # 调用API保存数据
+            pi_id = updated_order.get('pi_id')
+            if pi_id:
+                try:
+                    # 转换items数据格式以匹配后端PIInvoiceItemCreate
+                    api_items = []
+                    for item in updated_order.get('items', []):
+                        api_item = {
+                            'product_id': item.get('product_id') or item.get('id') or 1,
+                            'quantity': float(item.get('quantity', 0) or 0),
+                            'unit_price': float(item.get('unit_price', 0) or 0),
+                            'oe_number': item.get('oe_number', ''),
+                            'customer_code': item.get('customer_code', ''),
+                            'detail_desc': item.get('product_name', '') or item.get('detail_desc', ''),
+                            'remark': item.get('remark', ''),
+                        }
+                        api_items.append(api_item)
+                    
+                    # 构建API请求数据（匹配PIInvoiceUpdate格式）
+                    api_data = {
+                        'customer_id': updated_order.get('customer_id'),
+                        'items': api_items,
+                    }
+                    print(f"[DEBUG] _open_order_edit_dialog: 调用API更新, pi_id={pi_id}, data={api_data}")
+                    
+                    # 调用API
+                    result = self.api_client.update_pi(pi_id, api_data)
+                    print(f"[DEBUG] _open_order_edit_dialog: API返回结果={result}")
+                    
+                    QMessageBox.information(self, "成功", "订单已保存")
+                except Exception as e:
+                    print(f"[ERROR] _open_order_edit_dialog: 保存失败, error={e}")
+                    import traceback
+                    traceback.print_exc()
+                    QMessageBox.warning(self, "错误", f"保存失败: {e}")
+            
             # 更新列表中的数据
             idx = self._selected_order_index
             if idx is not None and idx < len(self._order_summary_filtered):
                 self._order_summary_filtered[idx] = updated_order
                 # 如果在原始列表中也存在
-                pi_id = updated_order.get('id')
+                pi_id = updated_order.get('pi_id')
                 for i, o in enumerate(self._order_summary_orders):
-                    if o.get('id') == pi_id:
+                    if o.get('pi_id') == pi_id:
                         self._order_summary_orders[i] = updated_order
                         break
                 # 刷新显示
