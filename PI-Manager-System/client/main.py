@@ -4819,7 +4819,20 @@ class MainWindow(QMainWindow):
                 order.get('product_image')
             )
             
-            print(f"[DEBUG] 图片加载 - 产品: {item.get('product_name', '未知')}, URL: {image_url}")
+            print(f"[DEBUG] 图片加载 - 产品: {item.get('product_name', item.get('name', '未知'))}, URL: {image_url}")
+            
+            # 如果item中没有图片，尝试从order获取
+            if not image_url or not str(image_url).strip():
+                # 尝试多种可能的图片字段（从order）
+                image_url = (
+                    order.get('default_image_url') or
+                    order.get('image_url') or 
+                    order.get('image') or 
+                    order.get('product_image') or
+                    order.get('pic_url') or
+                    item.get('default_image_url')
+                )
+                print(f"[DEBUG] 图片加载 - 从order获取URL: {image_url}")
             
             if image_url and str(image_url).strip():
                 try:
@@ -5191,7 +5204,16 @@ class MainWindow(QMainWindow):
         oe_number = first_item.get('oe_number', '') or ''
         remark = first_item.get('remark', '') or ''
         
-        print(f"[DEBUG] 订单总表: quantity={quantity}, unit_price={unit_price}, oe={oe_number}")
+        # 尝试获取产品名称（从多种可能的字段）
+        product_name = (
+            first_item.get('product_name') or 
+            first_item.get('name') or 
+            first_item.get('detail_desc') or
+            first_item.get('product_code') or
+            (product.get('name') if product else None)
+        ) or ''
+        
+        print(f"[DEBUG] 订单总表: quantity={quantity}, unit_price={unit_price}, oe={oe_number}, product_name={product_name}")
         
         # 使用传入的字典快速查找产品
         product = products.get(product_id) if product_id else None
@@ -5286,8 +5308,8 @@ class MainWindow(QMainWindow):
             'oe_count': len(oe_list),  # OE数量
             'customer_requirement': remark,
             'items': items,  # 保存完整的产品列表
-            # 产品名使用 product_code 或 detail_desc
-            'product_name': product.get('product_code', '') if product else (product.get('detail_desc', '') if product else ''),
+            # 产品名优先使用first_item中的值，否则使用product中的值
+            'product_name': product_name or (product.get('product_code', '') if product else (product.get('detail_desc', '') if product else '')),
             'product_code': product.get('product_code', '') if product else '',
             'product_detail_desc': product.get('detail_desc', '') if product else '',
             'image': product.get('default_image_url', '') if product else '',
