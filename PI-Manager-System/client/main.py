@@ -4553,6 +4553,8 @@ class MainWindow(QMainWindow):
         self.order_detail_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.order_detail_table.setAlternatingRowColors(True)
         self.order_detail_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # 设置行高（与产品管理一致）
+        self.order_detail_table.verticalHeader().setDefaultSectionSize(90)
         # 双击编辑
         self.order_detail_table.cellDoubleClicked.connect(self._on_order_detail_double_click)
         self.order_detail_table.setStyleSheet("""
