@@ -4931,51 +4931,83 @@ class MainWindow(QMainWindow):
         )
     
     def _load_images_async(self, orders):
-        """异步加载图片（不阻塞UI）"""
+        """异步加载图片（不阻塞UI，使用定时器分批加载）"""
         print("[INFO] 开始异步加载图片...")
         
-        def load_images():
-            """在后台线程中加载所有图片"""
-            image_cache = {}
-            for order in orders:
-                items = order.get('items', [])
-                if items:
-                    for item in items:
-                        image_url = (
-                            item.get('image_url') or 
-                            item.get('image') or 
-                            item.get('product_image') or 
-                            item.get('pic_url') or
-                            order.get('image_url') or 
-                            order.get('image') or
-                            order.get('product_image')
-                        )
-                        if image_url and str(image_url).strip():
-                            try:
-                                image_data = urllib.request.urlopen(str(image_url), timeout=5).read()
-                                image = QImage.fromData(image_data)
-                                if image:
-                                    pixmap = QPixmap.fromImage(image).scaled(78, 78, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                                    image_cache[image_url] = pixmap
-                            except:
-                                pass
-            return image_cache
+        # 收集所有需要加载的图片
+        self._image_load_queue = []
+        for order in orders:
+            items = order.get('items', [])
+            for item in items:
+                image_url = (
+                    item.get('image_url') or 
+                    item.get('image') or 
+                    item.get('product_image') or 
+                    item.get('pic_url') or
+                    order.get('image_url') or 
+                    order.get('image') or
+                    order.get('product_image')
+                )
+                if image_url and str(image_url).strip():
+                    self._image_load_queue.append(str(image_url))
         
-        class ImageLoaderThread(QThread):
-            finished = Signal(dict)
-            
+        # 去重
+        self._image_load_queue = list(dict.fromkeys(self._image_load_queue))
+        print(f"[INFO] 需要加载 {len(self._image_load_queue)} 张图片")
+        
+        # 开始分批加载
+        self._load_next_batch()
+    
+    def _load_next_batch(self):
+        """分批加载下一批图片（每次最多3张）"""
+        if not self._image_load_queue:
+            print("[INFO] 图片加载完成")
+            return
+        
+        # 每次加载3张
+        batch = self._image_load_queue[:3]
+        self._image_load_queue = self._image_load_queue[3:]
+        
+        def load_batch():
+            cache = {}
+            for url in batch:
+                try:
+                    image_data = urllib.request.urlopen(url, timeout=3).read()
+                    image = QImage.fromData(image_data)
+                    if image:
+                        pixmap = QPixmap.fromImage(image).scaled(78, 78, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        cache[url] = pixmap
+                except:
+                    pass
+            return cache
+        
+        class BatchLoader(QThread):
+            done = Signal(dict)
             def run(self):
-                cache = load_images()
-                self.finished.emit(cache)
+                self.done.emit(load_batch())
         
-        def on_images_loaded(cache):
-            """图片加载完成后的回调"""
-            print(f"[INFO] 图片加载完成，共 {len(cache)} 张")
-            # 这里可以更新表格中的图片（可选）
+        def on_batch_done(cache):
+            if cache:
+                # 更新表格中的图片
+                self._update_loaded_images(cache)
+            # 继续加载下一批
+            if self._image_load_queue:
+                QTimer.singleShot(100, self._load_next_batch)
         
-        loader = ImageLoaderThread(self)
-        loader.finished.connect(on_images_loaded)
+        loader = BatchLoader(self)
+        loader.done.connect(on_batch_done)
         loader.start()
+    
+    def _update_loaded_images(self, cache):
+        """更新已加载的图片到表格"""
+        for url, pixmap in cache.items():
+            # 遍历表格查找对应的图片label并更新
+            for row in range(self.order_detail_table.rowCount()):
+                widget = self.order_detail_table.cellWidget(row, 6)
+                if widget and hasattr(widget, 'property'):
+                    if widget.property("image_url") == url and widget.property("loaded") != "true":
+                        widget.setPixmap(pixmap)
+                        widget.setProperty("loaded", "true")
     
     def load_order_summary(self):
         """加载订单总表数据"""
