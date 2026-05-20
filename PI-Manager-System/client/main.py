@@ -4515,11 +4515,11 @@ class MainWindow(QMainWindow):
         self.order_detail_table.setColumnWidth(3, 100)   # OE号/总金额
         self.order_detail_table.setColumnWidth(4, 120)   # 备注/状态
         self.order_detail_table.setColumnWidth(5, 120)   # 产品名称/预付款
-        self.order_detail_table.setColumnWidth(6, 60)   # 图片列
+        self.order_detail_table.setColumnWidth(6, 90)   # 图片列
         self.order_detail_table.setColumnWidth(7, 100)   # 客户型号
         self.order_detail_table.setColumnWidth(8, 100)   # OE号.1
         self.order_detail_table.setColumnWidth(9, 60)   # 数量列
-        self.order_detail_table.setColumnWidth(10, 80)  # 报价列
+        self.order_detail_table.setColumnWidth(10, 120)  # 报价列
         self.order_detail_table.setColumnWidth(11, 100)  # 合计金额
         self.order_detail_table.setColumnWidth(12, 150)  # 客户最新回复
         self.order_detail_table.setColumnWidth(13, 80)   # 客户预付款
@@ -4804,20 +4804,35 @@ class MainWindow(QMainWindow):
             # 图片列
             from PySide6.QtWidgets import QLabel
             image_label = QLabel()
-            image_label.setFixedSize(54, 54)
+            image_label.setFixedSize(84, 84)
             image_label.setAlignment(Qt.AlignCenter)
-            image_label.setStyleSheet("border: 1px solid #e5e7eb;")
-            image_url = item.get('image_url', '') or item.get('image', '')
-            if image_url:
+            image_label.setStyleSheet("border: 1px solid #e5e7eb; background-color: #f9fafb;")
+            
+            # 尝试多种可能的图片字段
+            image_url = (
+                item.get('image_url') or 
+                item.get('image') or 
+                item.get('product_image') or 
+                item.get('pic_url') or
+                order.get('image_url') or 
+                order.get('image') or
+                order.get('product_image')
+            )
+            
+            if image_url and str(image_url).strip():
                 try:
-                    image_data = urllib.request.urlopen(image_url).read()
+                    image_data = urllib.request.urlopen(str(image_url), timeout=5).read()
                     image = QImage.fromData(image_data)
-                    pixmap = QPixmap.fromImage(image).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    image_label.setPixmap(pixmap)
-                except:
-                    image_label.setText("无")
+                    if image:
+                        pixmap = QPixmap.fromImage(image).scaled(78, 78, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        image_label.setPixmap(pixmap)
+                    else:
+                        image_label.setText("无法加载")
+                except Exception as e:
+                    image_label.setText("加载失败")
             else:
-                image_label.setText("无")
+                image_label.setText("无图片")
+            
             self.order_detail_table.setCellWidget(row, 6, image_label)
             
             self.order_detail_table.setItem(row, 7, QTableWidgetItem(item.get('customer_model', '')))              # 客户型号
