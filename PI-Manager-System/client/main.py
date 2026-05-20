@@ -4819,18 +4819,25 @@ class MainWindow(QMainWindow):
                 order.get('product_image')
             )
             
+            print(f"[DEBUG] 图片加载 - 产品: {item.get('product_name', '未知')}, URL: {image_url}")
+            
             if image_url and str(image_url).strip():
                 try:
                     image_data = urllib.request.urlopen(str(image_url), timeout=5).read()
+                    print(f"[DEBUG] 图片加载 - 下载成功, 大小: {len(image_data)} bytes")
                     image = QImage.fromData(image_data)
                     if image:
+                        print(f"[DEBUG] 图片加载 - 解析成功, 尺寸: {image.width()}x{image.height()}")
                         pixmap = QPixmap.fromImage(image).scaled(78, 78, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         image_label.setPixmap(pixmap)
                     else:
+                        print("[WARN] 图片加载 - QImage.fromData 失败")
                         image_label.setText("无法加载")
                 except Exception as e:
+                    print(f"[ERROR] 图片加载失败: {e}")
                     image_label.setText("加载失败")
             else:
+                print("[DEBUG] 图片加载 - 无图片URL")
                 image_label.setText("无图片")
             
             self.order_detail_table.setCellWidget(row, 6, image_label)
