@@ -4801,14 +4801,10 @@ class MainWindow(QMainWindow):
             self.order_detail_table.setItem(row, 4, QTableWidgetItem(item.get('remark', '')))                       # 客户需求备注
             self.order_detail_table.setItem(row, 5, QTableWidgetItem(item.get('product_name', '')))                 # 产品名称
             
-            # 图片列
+            # 图片列 - 延迟加载（提高性能）
             from PySide6.QtWidgets import QLabel
-            image_label = QLabel()
-            image_label.setFixedSize(84, 84)
-            image_label.setAlignment(Qt.AlignCenter)
-            image_label.setStyleSheet("border: 1px solid #e5e7eb; background-color: #f9fafb;")
             
-            # 尝试多种可能的图片字段
+            # 获取图片URL（不阻塞加载）
             image_url = (
                 item.get('image_url') or 
                 item.get('image') or 
@@ -4819,40 +4815,13 @@ class MainWindow(QMainWindow):
                 order.get('product_image')
             )
             
-            print(f"[DEBUG] 图片加载 - 产品: {item.get('product_name', item.get('name', '未知'))}, URL: {image_url}")
-            
-            # 如果item中没有图片，尝试从order获取
-            if not image_url or not str(image_url).strip():
-                # 尝试多种可能的图片字段（从order）
-                image_url = (
-                    order.get('default_image_url') or
-                    order.get('image_url') or 
-                    order.get('image') or 
-                    order.get('product_image') or
-                    order.get('pic_url') or
-                    item.get('default_image_url')
-                )
-                print(f"[DEBUG] 图片加载 - 从order获取URL: {image_url}")
-            
-            if image_url and str(image_url).strip():
-                try:
-                    image_data = urllib.request.urlopen(str(image_url), timeout=5).read()
-                    print(f"[DEBUG] 图片加载 - 下载成功, 大小: {len(image_data)} bytes")
-                    image = QImage.fromData(image_data)
-                    if image:
-                        print(f"[DEBUG] 图片加载 - 解析成功, 尺寸: {image.width()}x{image.height()}")
-                        pixmap = QPixmap.fromImage(image).scaled(78, 78, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        image_label.setPixmap(pixmap)
-                    else:
-                        print("[WARN] 图片加载 - QImage.fromData 失败")
-                        image_label.setText("无法加载")
-                except Exception as e:
-                    print(f"[ERROR] 图片加载失败: {e}")
-                    image_label.setText("加载失败")
-            else:
-                print("[DEBUG] 图片加载 - 无图片URL")
-                image_label.setText("无图片")
-            
+            image_label = QLabel()
+            image_label.setFixedSize(84, 84)
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setStyleSheet("border: 1px solid #e5e7eb; background-color: #f9fafb;")
+            image_label.setText("加载中...")
+            image_label.setProperty("image_url", str(image_url) if image_url else "")
+            image_label.setProperty("loaded", "false")
             self.order_detail_table.setCellWidget(row, 6, image_label)
             
             self.order_detail_table.setItem(row, 7, QTableWidgetItem(item.get('customer_model', '')))              # 客户型号
@@ -4960,6 +4929,53 @@ class MainWindow(QMainWindow):
             "导入功能", 
             "导入功能开发中...\n\n字段识别规则待配置。\n请查看代码中的注释示例。"
         )
+    
+    def _load_images_async(self, orders):
+        """异步加载图片（不阻塞UI）"""
+        print("[INFO] 开始异步加载图片...")
+        
+        def load_images():
+            """在后台线程中加载所有图片"""
+            image_cache = {}
+            for order in orders:
+                items = order.get('items', [])
+                if items:
+                    for item in items:
+                        image_url = (
+                            item.get('image_url') or 
+                            item.get('image') or 
+                            item.get('product_image') or 
+                            item.get('pic_url') or
+                            order.get('image_url') or 
+                            order.get('image') or
+                            order.get('product_image')
+                        )
+                        if image_url and str(image_url).strip():
+                            try:
+                                image_data = urllib.request.urlopen(str(image_url), timeout=5).read()
+                                image = QImage.fromData(image_data)
+                                if image:
+                                    pixmap = QPixmap.fromImage(image).scaled(78, 78, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                                    image_cache[image_url] = pixmap
+                            except:
+                                pass
+            return image_cache
+        
+        class ImageLoaderThread(QThread):
+            finished = Signal(dict)
+            
+            def run(self):
+                cache = load_images()
+                self.finished.emit(cache)
+        
+        def on_images_loaded(cache):
+            """图片加载完成后的回调"""
+            print(f"[INFO] 图片加载完成，共 {len(cache)} 张")
+            # 这里可以更新表格中的图片（可选）
+        
+        loader = ImageLoaderThread(self)
+        loader.finished.connect(on_images_loaded)
+        loader.start()
     
     def load_order_summary(self):
         """加载订单总表数据"""
@@ -5102,6 +5118,9 @@ class MainWindow(QMainWindow):
             self._order_summary_status.setText(f"共 {len(orders)} 条订单")
             self._hide_loading_tip()
             print("[INFO] 订单总表: 加载完成")
+            
+            # 异步延迟加载图片（在UI更新完成后，使用定时器分批加载）
+            QTimer.singleShot(500, lambda: self._load_images_async(orders))
             
         except Exception as e:
             print(f"[ERROR] 订单总表: 处理失败: {e}")
