@@ -1,17 +1,38 @@
 import requests
 from requests.adapters import HTTPAdapter
+from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout as RequestsTimeout
 from urllib3.util.retry import Retry
 from typing import Optional, List, Dict, Any
 from config import Config
+from .logging_config import setup_logger
 
 # 全局超时设置
 REQUEST_TIMEOUT = 10  # 秒
+DEFAULT_TIMEOUT = 10
+LARGE_RESPONSE_THRESHOLD = 1024 * 1024  # 1MB
+
+
+class PackageApiError(Exception):
+    """包装规格 API 错误基类"""
+    pass
+
+
+class PackageNotFoundError(PackageApiError):
+    """包装规格不存在（404）"""
+    pass
+
+
+class PackageNetworkError(PackageApiError):
+    """网络错误"""
+    pass
+
 
 class ApiClient:
     def __init__(self, base_url: str = None):
         self.base_url = (base_url or Config.API_BASE_URL).rstrip("/")
         self.session = self._create_session()
         self.db_config = None
+        self._logger = setup_logger("ApiClient")
 
     def _create_session(self) -> requests.Session:
         session = requests.Session()
@@ -44,76 +65,123 @@ class ApiClient:
             endpoint = endpoint[1:]
         return f"{self.base_url}/api/{endpoint}"
 
+    def _calculate_timeout(self, response: requests.Response = None) -> int:
+        """根据响应大小动态计算超时时间"""
+        timeout = DEFAULT_TIMEOUT
+
+        if response is not None:
+            content_length = response.headers.get("Content-Length")
+            if content_length:
+                try:
+                    size = int(content_length)
+                    if size > LARGE_RESPONSE_THRESHOLD:
+                        timeout = max(30, size // (100 * 1024))
+                        self._logger.debug(f"大文件响应 {size} bytes, 超时调整为 {timeout}s")
+                except ValueError:
+                    pass
+
+        return timeout
+
+    def is_alive(self) -> bool:
+        """检查 API 连接是否正常"""
+        try:
+            response = self.session.get(self.base_url, timeout=5)
+            return response.status_code < 500
+        except Exception as e:
+            self._logger.warning(f"健康检查失败: {str(e)}")
+            return False
+
+    def refresh_session(self):
+        """刷新会话（断线重连）"""
+        self._logger.info("刷新 API 会话...")
+        self.session = self._create_session()
+        if self.db_config:
+            self.set_db_config(self.db_config)
+        self._logger.info("API 会话已刷新")
+
     def get(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        print(f"DEBUG - GET request: {url}, params: {params}")
-        response = self.session.get(url, params=params, timeout=REQUEST_TIMEOUT)
-        print(f"DEBUG - GET response status: {response.status_code}")
+        self._logger.debug(f"GET request: {endpoint}, params: {params}")
         try:
+            response = self.session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            self._logger.debug(f"GET response status: {response.status_code}")
             response.raise_for_status()
             result = response.json()
-            print(f"DEBUG - GET response: {len(result) if isinstance(result, list) else 'dict'} items")
+            self._logger.debug(f"GET response: {len(result) if isinstance(result, list) else 'dict'} items")
             return result
         except Exception as e:
-            print(f"DEBUG - GET request failed: {str(e)}")
+            self._logger.error(f"GET request failed: {str(e)}")
             raise
 
-    def post(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def post(self, endpoint: str, data: Dict[str, Any] = None, files: Dict = None) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        print(f"DEBUG - POST request: {url}")
-        response = self.session.post(url, json=data, timeout=REQUEST_TIMEOUT)
-        print(f"DEBUG - POST response status: {response.status_code}")
+        self._logger.debug(f"POST request: {endpoint}")
+
+        if files:
+            import requests as req
+            if self.token:
+                headers = {"Authorization": f"Bearer {self.token}"}
+            else:
+                headers = {}
+
+            response = req.post(url, files=files, headers=headers, timeout=60)
+        else:
+            response = self.session.post(url, json=data, timeout=REQUEST_TIMEOUT)
+
+        self._logger.debug(f"POST response status: {response.status_code}")
         try:
             response.raise_for_status()
             result = response.json()
-            print(f"DEBUG - POST response: OK")
+            self._logger.debug(f"POST response: OK")
             return result
         except Exception as e:
-            print(f"DEBUG - POST request failed: {str(e)}")
+            self._logger.error(f"POST request failed: {str(e)}")
             raise
 
     def put(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        print(f"DEBUG - PUT request: {url}")
+        self._logger.debug(f"PUT request: {endpoint}")
         response = self.session.put(url, json=data, timeout=REQUEST_TIMEOUT)
-        print(f"DEBUG - PUT response status: {response.status_code}")
+        self._logger.debug(f"PUT response status: {response.status_code}")
         try:
             response.raise_for_status()
             result = response.json()
-            print(f"DEBUG - PUT response: OK")
+            self._logger.debug(f"PUT response: OK")
             return result
         except Exception as e:
-            print(f"DEBUG - PUT request failed: {str(e)}")
+            self._logger.error(f"PUT request failed: {str(e)}")
             raise
 
     def patch(self, endpoint: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        print(f"DEBUG - PATCH request: {url}")
+        self._logger.debug(f"PATCH request: {endpoint}")
         response = self.session.patch(url, json=data, timeout=REQUEST_TIMEOUT)
-        print(f"DEBUG - PATCH response status: {response.status_code}")
+        self._logger.debug(f"PATCH response status: {response.status_code}")
         try:
             response.raise_for_status()
             result = response.json()
-            print(f"DEBUG - PATCH response: OK")
+            self._logger.debug(f"PATCH response: OK")
             return result
         except Exception as e:
-            print(f"DEBUG - PATCH request failed: {str(e)}")
+            self._logger.error(f"PATCH request failed: {str(e)}")
             raise
 
     def delete(self, endpoint: str) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        print(f"DEBUG - DELETE request: {url}")
+        self._logger.debug(f"DELETE request: {endpoint}")
         response = self.session.delete(url, timeout=REQUEST_TIMEOUT)
-        print(f"DEBUG - DELETE response status: {response.status_code}")
+        self._logger.debug(f"DELETE response status: {response.status_code}")
+        if response.status_code >= 400:
+            self._logger.warning(f"DELETE response body: {response.text}")
         try:
             response.raise_for_status()
             if response.content:
                 result = response.json()
-                print(f"DEBUG - DELETE response: OK")
+                self._logger.debug(f"DELETE response: {result}")
                 return result
             return {}
         except Exception as e:
-            print(f"DEBUG - DELETE request failed: {str(e)}")
+            self._logger.error(f"DELETE request failed: {str(e)}")
             raise
 
     def post_files(self, endpoint: str, files: Dict) -> Dict[str, Any]:
@@ -164,7 +232,7 @@ class ApiClient:
         """删除供应商方案"""
         return self.delete(f"/products/{product_id}/schemes/{scheme_id}")
     
-    def search_products(self, keyword: str = "", category_id: int = None, status: int = None) -> List[Dict]:
+    def search_products(self, keyword: str = "", category_id: int = None, status: int = None, customer_id: int = None) -> List[Dict]:
         params = {}
         if keyword:
             params["keyword"] = keyword
@@ -172,6 +240,8 @@ class ApiClient:
             params["category_id"] = category_id
         if status is not None:
             params["status"] = status
+        if customer_id is not None:
+            params["customer_id"] = customer_id
         return self.get("/products/search", params=params)
 
     def create_product(self, data: Dict) -> Dict:
@@ -192,7 +262,8 @@ class ApiClient:
         return self.patch(f"/products/{product_id}/cancel-import")
 
     def delete_product(self, product_id: int) -> Dict:
-        return self.delete(f"/products/{product_id}")
+        """删除客户产品"""
+        return self.delete(f"/customer-products/{product_id}")
 
     def import_products(self, data: List[Dict]) -> Dict:
         return self.post("/products/import", {"products": data})
@@ -688,3 +759,162 @@ class ApiClient:
     def get_all_globals(self) -> Dict:
         """获取所有全局变量"""
         return self.get("/settings/all")
+
+    def get_product_categories(self) -> List[Dict]:
+        """获取产品类目列表"""
+        return self.get("/product-categories") or []
+
+    # ========== 备忘录 ==========
+
+    def get_memos(self, entity_type: str, entity_id: int, field_name: str = None) -> List[Dict]:
+        """获取备忘录列表"""
+        params = {"entity_type": entity_type, "entity_id": entity_id}
+        if field_name:
+            params["field_name"] = field_name
+        return self.get("/memos", params=params) or []
+
+    def create_memo(self, data: Dict) -> Dict:
+        """创建备忘录"""
+        return self.post("/memos", data)
+
+    def update_memo(self, memo_id: int, data: Dict) -> Dict:
+        """更新备忘录"""
+        return self.put(f"/memos/{memo_id}", data)
+
+    def delete_memo(self, memo_id: int) -> Dict:
+        """删除备忘录"""
+        return self.delete(f"/memos/{memo_id}")
+
+    # ========== 订单文件 ==========
+
+    def get_order_files(self, pi_id: int, file_type: str = None) -> List[Dict]:
+        """获取订单文件列表"""
+        params = {}
+        if file_type:
+            params["file_type"] = file_type
+        return self.get(f"/order-files/{pi_id}", params=params) or []
+
+    def upload_order_file(self, pi_id: int, file_type: str, file_path: str) -> Dict:
+        """上传订单文件"""
+        with open(file_path, 'rb') as f:
+            return self.upload(f"/order-files/upload/{pi_id}?file_type={file_type}", f)
+
+    def download_order_file(self, file_id: int, save_path: str):
+        """下载订单文件"""
+        url = self._build_url(f"/order-files/download/{file_id}")
+        response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        with open(save_path, 'wb') as f:
+            f.write(response.content)
+
+    def delete_order_file(self, file_id: int) -> Dict:
+        """删除订单文件"""
+        return self.delete(f"/order-files/{file_id}")
+
+    # ========== 付款查询 ==========
+
+    def get_customer_payments_by_pi(self, pi_id: int) -> List[Dict]:
+        """按 PI 获取客户付款记录"""
+        return self.get(f"/payments/receivables/by-pi/{pi_id}") or []
+
+    def get_supplier_payments_by_pi(self, pi_id: int) -> List[Dict]:
+        """按 PI 获取供应商付款记录"""
+        return self.get(f"/payments/payables/by-pi/{pi_id}") or []
+
+    # ========== 采购包装规格 ==========
+
+    def get_purchase_item_package(self, po_item_id: int) -> Optional[Dict]:
+        """获取采购明细项的包装规格
+        
+        Raises:
+            PackageNotFoundError: 包装规格不存在（404）
+            PackageNetworkError: 网络连接失败或请求超时
+        """
+        try:
+            response = self.session.get(
+                self._build_url(f"/purchase-items/{po_item_id}/package"),
+                timeout=REQUEST_TIMEOUT
+            )
+            if response.status_code == 404:
+                raise PackageNotFoundError(f"包装规格不存在: po_item_id={po_item_id}")
+            response.raise_for_status()
+            return response.json()
+        except RequestsConnectionError as e:
+            raise PackageNetworkError(f"网络连接失败: {e}")
+        except RequestsTimeout as e:
+            raise PackageNetworkError(f"请求超时: {e}")
+        except Exception as e:
+            self._logger.error(f"获取包装规格失败: {e}")
+            return None
+
+    def save_purchase_item_package(self, po_item_id: int, package_data: Dict) -> Optional[Dict]:
+        """保存采购明细项的包装规格（创建或更新）
+        
+        Raises:
+            PackageNetworkError: 网络连接失败或请求超时
+        """
+        try:
+            data = {**package_data, "po_item_id": po_item_id}
+            response = self.session.post(
+                self._build_url(f"/purchase-items/{po_item_id}/package"),
+                json=data,
+                timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            return response.json()
+        except RequestsConnectionError as e:
+            raise PackageNetworkError(f"网络连接失败: {e}")
+        except RequestsTimeout as e:
+            raise PackageNetworkError(f"请求超时: {e}")
+        except Exception as e:
+            self._logger.error(f"保存包装规格失败: {e}")
+            return None
+
+    def delete_purchase_item_package(self, po_item_id: int) -> bool:
+        """删除采购明细项的包装规格
+        
+        Raises:
+            PackageNotFoundError: 包装规格不存在（404）
+            PackageNetworkError: 网络连接失败或请求超时
+        """
+        try:
+            response = self.session.delete(
+                self._build_url(f"/purchase-items/{po_item_id}/package"),
+                timeout=REQUEST_TIMEOUT
+            )
+            if response.status_code == 404:
+                raise PackageNotFoundError(f"包装规格不存在: po_item_id={po_item_id}")
+            response.raise_for_status()
+            return True
+        except RequestsConnectionError as e:
+            raise PackageNetworkError(f"网络连接失败: {e}")
+        except RequestsTimeout as e:
+            raise PackageNetworkError(f"请求超时: {e}")
+        except Exception as e:
+            self._logger.error(f"删除包装规格失败: {e}")
+            return False
+
+    def get_history_package(self, customer_id: int, product_id: int) -> Optional[Dict]:
+        """获取历史包装规格（智能回填接口）
+        
+        根据客户+产品组合查询最近一次使用的包装规格，
+        用于新订单的智能回填功能。
+        
+        Raises:
+            PackageNetworkError: 网络连接失败或请求超时
+        """
+        try:
+            response = self.session.get(
+                self._build_url("/purchase-items/history-package"),
+                params={"customer_id": customer_id, "product_id": product_id},
+                timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            return response.json()
+        except RequestsConnectionError as e:
+            raise PackageNetworkError(f"网络连接失败: {e}")
+        except RequestsTimeout as e:
+            raise PackageNetworkError(f"请求超时: {e}")
+        except Exception as e:
+            self._logger.error(f"获取历史包装规格失败: {e}")
+            return None

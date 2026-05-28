@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 class ProductCategoryBase(BaseModel):
-    code: str
+    code: Optional[str] = None  # 可选，支持自动生成
     name: str
     description: Optional[str] = None
     status: Optional[int] = 1

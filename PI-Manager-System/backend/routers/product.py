@@ -23,8 +23,8 @@ def read_products(skip: int = 0, limit: int = 100, status: int = None, db: Sessi
     return get_products(db, skip=skip, limit=limit, status=status)
 
 @router.get("/search", response_model=list[ProductResponse])
-def search_products_api(keyword: str = "", category_id: int = None, status: int = None, db: Session = Depends(get_db)):
-    return search_products(db, keyword=keyword, category_id=category_id, status=status)
+def search_products_api(keyword: str = "", category_id: int = None, status: int = None, customer_id: int = None, db: Session = Depends(get_db)):
+    return search_products(db, keyword=keyword, category_id=category_id, status=status, customer_id=customer_id)
 
 @router.get("/{product_id}/schemes")
 def get_product_schemes(product_id: int, db: Session = Depends(get_db)):

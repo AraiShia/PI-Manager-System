@@ -26,6 +26,11 @@ def create_customer_payment_api(payment: CustomerPaymentCreate, db: Session = De
 def read_customer_payments(skip: int = 0, limit: int = 100, pi_id: int = None, customer_id: int = None, db: Session = Depends(get_db)):
     return get_customer_payments(db, skip=skip, limit=limit, pi_id=pi_id, customer_id=customer_id)
 
+@router.get("/receivables/by-pi/{pi_id}", response_model=list[CustomerPaymentResponse])
+def read_customer_payments_by_pi(pi_id: int, db: Session = Depends(get_db)):
+    """按 PI 获取客户付款记录"""
+    return get_customer_payments(db, pi_id=pi_id)
+
 @router.get("/receivables/{payment_id}", response_model=CustomerPaymentResponse)
 def read_customer_payment(payment_id: int, db: Session = Depends(get_db)):
     db_payment = get_customer_payment(db, payment_id)
@@ -50,6 +55,13 @@ def create_supplier_payment_api(payment: SupplierPaymentCreate, db: Session = De
 @router.get("/payables", response_model=list[SupplierPaymentResponse])
 def read_supplier_payments(skip: int = 0, limit: int = 100, po_id: int = None, supplier_id: int = None, db: Session = Depends(get_db)):
     payments = get_supplier_payments(db, skip=skip, limit=limit, po_id=po_id, supplier_id=supplier_id)
+    return [_serialize_supplier_payment(p) for p in payments]
+
+@router.get("/payables/by-pi/{pi_id}", response_model=list[dict])
+def read_supplier_payments_by_pi(pi_id: int, db: Session = Depends(get_db)):
+    """按 PI 获取供应商付款记录"""
+    from crud.payment import get_supplier_payments_by_pi
+    payments = get_supplier_payments_by_pi(db, pi_id)
     return [_serialize_supplier_payment(p) for p in payments]
 
 @router.get("/payables/{payment_id}", response_model=SupplierPaymentResponse)

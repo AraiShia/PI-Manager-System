@@ -321,3 +321,26 @@ class CachedApiClient(ApiClient):
     # 获取缓存状态
     def get_cache_status(self) -> Dict[str, Any]:
         return get_cache_status()
+    
+    # ==================== 产品类目 ====================
+    
+    def get_product_categories(self) -> List[Dict]:
+        """获取产品类目列表"""
+        return super().get_product_categories()
+
+    # ==================== 采购包装规格（带缓存）====================
+
+    def get_history_package(self, customer_id: int, product_id: int, force_refresh: bool = False) -> Optional[Dict]:
+        """获取历史包装规格（智能回填，带5分钟缓存）
+        
+        缓存策略：
+        - 默认缓存5分钟，避免重复查询
+        - force_refresh=True 时强制刷新缓存
+        - 适用于编辑对话框打开时的自动回填场景
+        """
+        cache_key = f"history_package_{customer_id}_{product_id}"
+        
+        def fetch():
+            return ApiClient.get_history_package(self, customer_id, product_id)
+        
+        return self._get_with_cache(cache_key, fetch, force_refresh)

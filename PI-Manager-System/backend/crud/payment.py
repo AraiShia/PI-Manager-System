@@ -235,6 +235,14 @@ def get_supplier_payments(db: Session, skip: int = 0, limit: int = 100, po_id: i
         query = query.filter(ApSupplierPayment.supplier_id == supplier_id)
     return query.offset(skip).limit(limit).all()
 
+def get_supplier_payments_by_pi(db: Session, pi_id: int):
+    """按 PI 获取供应商付款列表（通过采购单关联）"""
+    from models import PoPurchaseOrder
+    po_ids = [po.id for po in db.query(PoPurchaseOrder).filter(PoPurchaseOrder.pi_id == pi_id).all()]
+    if not po_ids:
+        return []
+    return db.query(ApSupplierPayment).filter(ApSupplierPayment.po_id.in_(po_ids)).all()
+
 def get_supplier_payment(db: Session, payment_id: int) -> ApSupplierPayment:
     """获取单个供应商付款（包含stages）"""
     return db.query(ApSupplierPayment).filter(ApSupplierPayment.id == payment_id).first()

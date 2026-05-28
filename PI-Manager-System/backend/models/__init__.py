@@ -1,3 +1,6 @@
+from .customer_product import PrdCustomerProduct
+from .customer_product_code import PrdCustomerProductCode
+from .customer_product_oe import PrdCustomerProductOE
 from .department import SysDepartment
 from .product_category import PrdProductCategory
 from .product import PrdProduct, PrdProductImage, PrdProductCustomerCode
@@ -14,8 +17,12 @@ from .system import SysNumberRule, SysNumberHistory, SysOperationLog
 from .public import PubCategory, PubRegion, PubCurrency
 from .user import SysUser
 from .setting import SysSetting
+from .memo_record import MemoRecord
+from .order_file import OrderFile
+from .purchase_package import PoPurchaseOrderItemPackage
 
 __all__ = [
+    'PrdCustomerProduct', 'PrdCustomerProductCode', 'PrdCustomerProductOE',
     'SysDepartment',
     'PrdProductCategory',
     'PrdProduct', 'PrdProductImage', 'PrdProductCustomerCode',
@@ -32,5 +39,8 @@ __all__ = [
     'SysNumberRule', 'SysNumberHistory', 'SysOperationLog',
     'PubCategory', 'PubRegion', 'PubCurrency',
     'SysUser',
-    'SysSetting'
+    'SysSetting',
+    'MemoRecord',
+    'OrderFile',
+    'PoPurchaseOrderItemPackage',
 ]

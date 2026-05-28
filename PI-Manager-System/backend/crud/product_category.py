@@ -14,9 +14,41 @@ def get_product_categories(db: Session, status: int = None) -> list[PrdProductCa
         query = query.filter(PrdProductCategory.status == status)
     return query.order_by(PrdProductCategory.sort_order).all()
 
-def create_product_category(db: Session, category: ProductCategoryCreate) -> PrdProductCategory:
+def generate_category_code(db: Session) -> str:
+    """自动生成类别编号"""
+    # 获取最大编号
+    categories = db.query(PrdProductCategory).order_by(PrdProductCategory.code.desc()).all()
+    
+    if not categories:
+        return "01"
+    
+    max_code = categories[0].code if categories else "00"
+    
+    # 尝试解析数字部分
+    try:
+        num = int(max_code)
+        new_num = num + 1
+        return f"{new_num:02d}"  # 两位数字，如 01, 02...
+    except:
+        # 如果不是纯数字，找到最后一个数字部分
+        import re
+        matches = re.findall(r'\d+', max_code)
+        if matches:
+            last_num = int(matches[-1])
+            new_num = last_num + 1
+            # 替换最后一个数字
+            new_code = re.sub(r'\d+$', f"{new_num:02d}", max_code)
+            return new_code
+        return max_code + "1"
+
+def create_product_category(db: Session, category: ProductCategoryCreate, auto_code: bool = False) -> PrdProductCategory:
+    # 如果启用自动编号且没有提供编号
+    code = category.code
+    if auto_code and (not code or code.strip() == ''):
+        code = generate_category_code(db)
+    
     db_category = PrdProductCategory(
-        code=category.code,
+        code=code,
         name=category.name,
         description=category.description,
         status=category.status or 1,

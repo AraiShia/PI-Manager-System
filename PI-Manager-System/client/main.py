@@ -10,8 +10,17 @@ import traceback
 import concurrent.futures
 import urllib.request
 import ctypes
+import logging
 from datetime import datetime, timedelta
 from functools import lru_cache
+
+# 配置日志
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger('PI_Client')
 
 # 数据处理
 import pandas as pd
@@ -543,11 +552,12 @@ class OrderEditDialog(QDialog):
         
         # 产品表格
         self.product_table = QTableWidget()
-        self.product_table.setColumnCount(8)
+        self.product_table.setColumnCount(9)
         self.product_table.setHorizontalHeaderLabels([
-            "客户产品编号", "OE号", "产品名称", "客户型号", "数量", "单价", "总金额", "操作"
+            "客户产品编号", "OE号", "产品名称", "客户型号", "数量", "单价", "总金额", "编辑", "删除"
         ])
         self.product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.product_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.product_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.product_table.verticalHeader().setDefaultSectionSize(50)
         
@@ -569,7 +579,7 @@ class OrderEditDialog(QDialog):
             total = (item.get('quantity', 0) or 0) * (item.get('unit_price', 0) or 0)
             self.product_table.setItem(row, 6, QTableWidgetItem(f"{total:.2f}"))  # 总金额
             
-            # 操作按钮
+            # 编辑按钮
             edit_btn = QPushButton("编辑")
             edit_btn.setStyleSheet("""
                 QPushButton {
@@ -583,11 +593,29 @@ class OrderEditDialog(QDialog):
             """)
             edit_btn.clicked.connect(lambda checked, r=row, itm=item: self._edit_product_item(r, itm))
             self.product_table.setCellWidget(row, 7, edit_btn)
+            
+            # 删除按钮
+            delete_btn = QPushButton("删除")
+            delete_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ef4444;
+                    color: white;
+                    border: none;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover { background-color: #dc2626; }
+            """)
+            delete_btn.clicked.connect(lambda checked, r=row: self._delete_product_item(r))
+            self.product_table.setCellWidget(row, 8, delete_btn)
         
         # 双击行编辑
         self.product_table.cellDoubleClicked.connect(self._on_product_cell_double_click)
         
         product_layout.addWidget(self.product_table)
+        
+        # 按钮行
+        btn_row_layout = QHBoxLayout()
         
         # 添加产品按钮
         add_product_btn = QPushButton("+ 添加产品")
@@ -602,7 +630,26 @@ class OrderEditDialog(QDialog):
             }
             QPushButton:hover { background-color: #059669; }
         """)
-        product_layout.addWidget(add_product_btn)
+        btn_row_layout.addWidget(add_product_btn)
+        
+        btn_row_layout.addStretch()
+        
+        # 删除选中按钮
+        delete_selected_btn = QPushButton("🗑 删除选中")
+        delete_selected_btn.clicked.connect(self._delete_selected_products)
+        delete_selected_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6b7280;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #4b5563; }
+        """)
+        btn_row_layout.addWidget(delete_selected_btn)
+        
+        product_layout.addLayout(btn_row_layout)
         
         product_group.setLayout(product_layout)
         layout.addWidget(product_group)
@@ -679,6 +726,52 @@ class OrderEditDialog(QDialog):
             self.product_table.setItem(row, 6, QTableWidgetItem(f"{total:.2f}"))
             print(f"[DEBUG] _edit_product_item: 表格已更新, 行{row}")
     
+    def _delete_product_item(self, row):
+        """删除单个产品"""
+        # 检查是否删除最后一个产品
+        if self.product_table.rowCount() == 1:
+            reply = QMessageBox.question(self, "警告", "删除最后一个产品将导致订单为空！\n\n请选择：\n- 点击\"是\"：删除产品和订单\n- 点击\"否\"：取消删除\n- 点击\"取消\"：只保留空订单",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
+            if reply == QMessageBox.StandardButton.Yes:
+                # 删除产品，订单保存时处理
+                self.product_table.removeRow(row)
+                self.updated_order['items'] = []
+            elif reply == QMessageBox.StandardButton.No:
+                # 删除产品但保留订单
+                self.product_table.removeRow(row)
+            # Cancel: 不删除
+        else:
+            reply = QMessageBox.question(self, "确认", "确定要删除该产品吗？",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.product_table.removeRow(row)
+    
+    def _delete_selected_products(self):
+        """删除选中的产品"""
+        selected_rows = set(item.row() for item in self.product_table.selectedItems())
+        if not selected_rows:
+            QMessageBox.warning(self, "提示", "请先选择要删除的产品")
+            return
+        
+        # 检查删除后是否为空
+        remaining = self.product_table.rowCount() - len(selected_rows)
+        if remaining == 0:
+            reply = QMessageBox.question(self, "警告", "删除选中的产品将导致订单为空！\n\n请选择：\n- 点击\"是\"：删除产品和订单\n- 点击\"否\"：取消删除\n- 点击\"取消\"：只保留空订单",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
+            if reply == QMessageBox.StandardButton.Yes:
+                for row in sorted(selected_rows, reverse=True):
+                    self.product_table.removeRow(row)
+                self.updated_order['items'] = []
+            elif reply == QMessageBox.StandardButton.No:
+                for row in sorted(selected_rows, reverse=True):
+                    self.product_table.removeRow(row)
+        else:
+            reply = QMessageBox.question(self, "确认", f"确定要删除选中的 {len(selected_rows)} 个产品吗？",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                for row in sorted(selected_rows, reverse=True):
+                    self.product_table.removeRow(row)
+    
     def _on_product_cell_double_click(self, row, column):
         """双击产品行打开编辑"""
         print(f"[DEBUG] _on_product_cell_double_click: 双击行{row}, 列{column}")
@@ -724,6 +817,21 @@ class OrderEditDialog(QDialog):
             """)
             edit_btn.clicked.connect(lambda checked, r=row, itm=new_item: self._edit_product_item(r, itm))
             self.product_table.setCellWidget(row, 7, edit_btn)
+            
+            # 删除按钮
+            delete_btn = QPushButton("删除")
+            delete_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ef4444;
+                    color: white;
+                    border: none;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover { background-color: #dc2626; }
+            """)
+            delete_btn.clicked.connect(lambda checked, r=row: self._delete_product_item(r))
+            self.product_table.setCellWidget(row, 8, delete_btn)
     
     def _show_reply_history(self):
         """显示回复历史记录"""
@@ -743,6 +851,11 @@ class OrderEditDialog(QDialog):
         supplier_id = self.supplier_combo.currentData()
         print(f"[DEBUG] customer_id={customer_id}, supplier_id={supplier_id}")
         
+        # 检查是否有客户
+        if not customer_id:
+            QMessageBox.warning(self, "警告", "请选择客户")
+            return
+        
         self.updated_order['customer_id'] = customer_id
         self.updated_order['supplier_id'] = supplier_id
         
@@ -761,6 +874,13 @@ class OrderEditDialog(QDialog):
             items.append(item)
         
         self.updated_order['items'] = items
+        
+        # 检查是否为空订单
+        if not items:
+            reply = QMessageBox.question(self, "警告", "订单没有产品！\n\n请选择：\n- 点击\"是\"：保存空订单\n- 点击\"否\"：取消保存",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         
         # 计算总金额
         total = sum((item.get('quantity', 0) or 0) * (item.get('unit_price', 0) or 0) for item in items)
@@ -3173,6 +3293,57 @@ class SupplierDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    COLUMN_TO_TAB = {
+        # ===== Tab0: 订单信息 =====
+        0: 0,   # 订单日期
+        1: 0,   # ORDER NO.
+        3: 0,   # OE号
+        4: 0,   # 客户需求备注
+        7: 0,   # 客户型号
+        8: 0,   # OE号.1
+        9: 0,   # 数量
+        10: 0,  # 报价(USD/RMB)
+        11: 0,  # 合计金额
+        12: 0,  # 客户最新回复
+        20: 0,  # （预留）
+        
+        # ===== Tab1: 客户信息 =====
+        2: 1,   # 客户产品编号
+        
+        # ===== Tab2: 产品信息（含包装规格）=====
+        5: 2,   # 产品名称
+        6: 2,   # 图片
+        31: 2,  # （预留）
+        33: 2,  # 纸箱尺寸
+        34: 2,  # 打包规格
+        35: 2,  # （预留）
+        36: 2,  # （预留）
+        37: 2,  # 整箱毛重
+        38: 2,  # （预留）
+        39: 2,  # （预留）
+        
+        # ===== Tab3: 采购信息（含包装方式）=====
+        17: 3,  # 采购价格
+        18: 3,  # 预估美金报价
+        19: 3,  # 预估毛利率
+        21: 3,  # 供应商
+        22: 3,  # 店铺链接
+        23: 3,  # 运费
+        29: 3,  # 包装方式
+        30: 3,  # 采购选项/名称
+        32: 3,  # 工厂编号
+        
+        # ===== Tab4: 付款信息 =====
+        13: 4,  # 客户预付款
+        14: 4,  # 待收尾款
+        24: 4,  # 工厂订金
+        25: 4,  # 工厂尾款
+        26: 4,  # 付款阶段
+        27: 4,  # 预付比例
+        28: 4,  # 开票状态
+        40: 4,  # （预留）
+    }
+
     def __init__(self, api_client: ApiClient, dept_id: str):
         super().__init__()
         self.api_client = api_client
@@ -3414,9 +3585,13 @@ class MainWindow(QMainWindow):
             if key in refresh_map:
                 refresh_map[key]()
     
-    def _load_async(self, api_method, update_method, error_msg="加载失败"):
+    def _load_async(self, api_method, update_method, error_msg="加载失败", loading_msg=None):
         """通用异步加载方法，使用QThread确保UI在主线程更新"""
         from PySide6.QtCore import QThread
+        
+        # 显示加载提示
+        if loading_msg:
+            self._show_loading_tip(loading_msg)
         
         class LoaderThread(QThread):
             def __init__(self, api_method, parent=None):
@@ -3434,8 +3609,12 @@ class MainWindow(QMainWindow):
                     self.error_occurred = True
                     self.result_data = []
         
+        def on_finished(result):
+            self._hide_loading_tip()
+            update_method(result)
+        
         thread = LoaderThread(api_method, self)
-        thread.finished.connect(lambda: update_method(thread.result_data))
+        thread.finished.connect(lambda: on_finished(thread.result_data))
         thread.start()
         return thread
     
@@ -3444,7 +3623,8 @@ class MainWindow(QMainWindow):
         self._load_async(
             self.api_client.get_customers,
             self._update_customers_table,
-            "加载客户失败"
+            "加载客户失败",
+            loading_msg="正在加载客户..."
         )
     
     def _update_customers_table(self, customers):
@@ -3484,7 +3664,8 @@ class MainWindow(QMainWindow):
         self._load_async(
             self.api_client.get_suppliers,
             self._update_suppliers_table,
-            "加载供应商失败"
+            "加载供应商失败",
+            loading_msg="正在加载供应商..."
         )
     
     def _update_suppliers_table(self, suppliers):
@@ -3580,6 +3761,34 @@ class MainWindow(QMainWindow):
         """)
         toolbar.addWidget(add_btn)
 
+        # 筛选栏 - 保留客户筛选
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(10)
+
+        filter_layout.addWidget(QLabel("客户:"))
+        self.product_customer_filter = QComboBox()
+        self.product_customer_filter.setFixedWidth(150)
+        self.product_customer_filter.addItem("全部客户", 0)
+        filter_layout.addWidget(self.product_customer_filter)
+
+        filter_btn = QPushButton("筛选")
+        filter_btn.clicked.connect(self.filter_by_customer)
+        filter_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e5e7eb;
+                color: #374151;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover { background-color: #d1d5db; }
+        """)
+        filter_layout.addWidget(filter_btn)
+
+        filter_layout.addStretch()
+
+        toolbar.addLayout(filter_layout)
+
         refresh_btn = QPushButton("刷新")
         refresh_btn.clicked.connect(self.load_products)
         refresh_btn.setStyleSheet("""
@@ -3649,21 +3858,30 @@ class MainWindow(QMainWindow):
         layout.addLayout(toolbar)
 
         self.products_table = QTableWidget()
-        self.products_table.setColumnCount(11)
+        self.products_table.setColumnCount(14)
         self.products_table.setHorizontalHeaderLabels([
-            "", "客户产品编号", "OE号", "图片", "产品名称", 
-            "客户型号", "客户号", "产品特性", "数量", "报价", "编辑"
+            "", "客户产品编号", "系统编号", "OE号", "图片", "产品名称",
+            "客户型号", "客户", "类别", "颜色", "品牌", "USD", "RMB", "规格", "操作"
         ])
-        self.products_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.products_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.products_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        # 设置图片列宽度和行高
-        self.products_table.setColumnWidth(3, 70)
-        self.products_table.setColumnWidth(0, 30)  # 复选框列（无表头，仅显示checkbox）
-        self.products_table.setColumnWidth(10, 50)  # 编辑列
+        # 设置列宽
+        self.products_table.setColumnWidth(0, 30)   # 复选框
+        self.products_table.setColumnWidth(1, 120)  # 客户产品编号
+        self.products_table.setColumnWidth(2, 120)  # 系统编号
+        self.products_table.setColumnWidth(3, 100)  # OE号
+        self.products_table.setColumnWidth(4, 70)   # 图片
+        self.products_table.setColumnWidth(5, 150)  # 产品名称
+        self.products_table.setColumnWidth(6, 100)  # 客户型号
+        self.products_table.setColumnWidth(7, 100)  # 客户
+        self.products_table.setColumnWidth(8, 80)   # 类别
+        self.products_table.setColumnWidth(9, 60)   # 颜色
+        self.products_table.setColumnWidth(10, 80)  # 品牌
+        self.products_table.setColumnWidth(11, 80)  # USD
+        self.products_table.setColumnWidth(12, 80)  # RMB
+        self.products_table.setColumnWidth(13, 150)  # 规格
+        self.products_table.setColumnHidden(14, True)  # ID 列隐藏
         self.products_table.verticalHeader().setDefaultSectionSize(70)
         self.products_table.doubleClicked.connect(self.on_product_double_click)
-        self.setup_table_context_menu(self.products_table, ["", "客户产品编号", "OE号", "图片", "产品名称", "客户型号", "客户号", "产品特性", "数量", "报价", "编辑"])
+        self.setup_table_context_menu(self.products_table, ["", "客户产品编号", "系统编号", "OE号", "图片", "产品名称", "客户型号", "客户", "类别", "颜色", "品牌", "USD", "RMB", "规格", "操作"])
         layout.addWidget(self.products_table)
 
         widget.setLayout(layout)
@@ -4106,7 +4324,8 @@ class MainWindow(QMainWindow):
         self._load_async(
             self.api_client.get_quotes,
             self._update_quote_table,
-            "加载报价单失败"
+            "加载报价单失败",
+            loading_msg="正在加载报价单..."
         )
 
     def _update_quote_table(self, quotes):
@@ -4913,6 +5132,37 @@ class MainWindow(QMainWindow):
         """)
         detail_layout.addWidget(self.order_detail_table)
         
+        # ==================== 详情顶部标题栏（切换视图时显示） ====================
+        self._detail_header = QWidget()
+        detail_header_layout = QHBoxLayout()
+        detail_header_layout.setContentsMargins(0, 10, 0, 10)
+        
+        self._detail_title_label = QLabel()
+        self._detail_title_label.setFont(get_font(14, QFont.Weight.Bold))
+        self._detail_title_label.setStyleSheet("color: #1f2937;")
+        detail_header_layout.addWidget(self._detail_title_label)
+        
+        detail_header_layout.addStretch()
+        
+        self._back_btn = QPushButton("← 返回订单列表")
+        self._back_btn.setFixedWidth(140)
+        self._back_btn.clicked.connect(self._back_to_order_list)
+        self._back_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e5e7eb;
+                color: #374151;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover { background-color: #d1d5db; }
+        """)
+        detail_header_layout.addWidget(self._back_btn)
+        
+        self._detail_header.setLayout(detail_header_layout)
+        self._detail_header.hide()  # 默认隐藏
+        detail_layout.insertWidget(0, self._detail_header)
+        
         # 提示标签
         self.order_detail_hint = QLabel("⬆ 点击下方订单列表中的订单查看详情")
         self.order_detail_hint.setStyleSheet("color: #9ca3af; font-size: 12px; padding: 5px;")
@@ -4929,7 +5179,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter)
         
         # ==================== 下半部分：订单列表 ====================
-        list_group = QGroupBox("📑 订单列表")
+        self.order_list_group = QGroupBox("📑 订单列表")
         list_layout = QVBoxLayout()
         
         # 搜索栏
@@ -4985,13 +5235,14 @@ class MainWindow(QMainWindow):
         self._order_summary_status.setStyleSheet("color: #6b7280; font-size: 12px;")
         list_layout.addWidget(self._order_summary_status)
         
-        list_group.setLayout(list_layout)
-        layout.addWidget(list_group)
+        self.order_list_group.setLayout(list_layout)
+        layout.addWidget(self.order_list_group)
         
         # 存储所有订单的完整数据
         self._order_summary_orders = []
         self._order_summary_filtered = []
         self._selected_order_index = None
+        self._order_summary_view_mode = "list"  # "list" | "detail" - 视图状态管理
         
         widget.setLayout(layout)
         
@@ -5002,17 +5253,54 @@ class MainWindow(QMainWindow):
     
     def _on_order_list_click(self, row, column):
         """点击订单列表行，显示详情"""
+        logger.info(f"[订单总表] 单击行: row={row}, column={column}")
+        
         if row < 0 or row >= len(self._order_summary_filtered):
+            logger.warning(f"[订单总表] 行索引越界: row={row}, filtered_len={len(self._order_summary_filtered)}")
             return
         
         # 如果点击的是选择列，复选框逻辑
         if column == 0:
+            logger.debug(f"[订单总表] 点击选择列，忽略")
             return  # 让复选框自行处理
         
         # 获取订单数据
         order = self._order_summary_filtered[row]
         self._selected_order_index = row
+        logger.info(f"[订单总表] 选中订单: index={row}, order_no={order.get('order_no')}")
+        
         self._show_order_detail(order)
+        
+        # 切换到详情视图
+        self._order_summary_view_mode = "detail"
+        self._update_order_summary_view()
+        logger.info(f"[订单总表] 视图切换到: detail")
+    
+    def _back_to_order_list(self):
+        """返回订单列表视图"""
+        logger.info(f"[订单总表] 返回列表视图, 当前视图={self._order_summary_view_mode}")
+        self._order_summary_view_mode = "list"
+        self._update_order_summary_view()
+        logger.info(f"[订单总表] 视图切换到: list")
+    
+    def _update_order_summary_view(self):
+        """更新订单总表视图显示"""
+        logger.debug(f"[订单总表] 更新视图, view_mode={self._order_summary_view_mode}, selected_index={self._selected_order_index}")
+        
+        if self._order_summary_view_mode == "detail":
+            # 显示详情视图
+            self._detail_header.show()
+            self.order_detail_hint.hide()
+            self.order_detail_group.show()  # 显示详情表格
+            self.order_list_group.hide()      # 隐藏列表
+            logger.info(f"[订单总表] 显示详情视图, 详情标题={self._detail_title_label.text()}")
+        else:
+            # 显示列表视图（默认全屏显示订单列表）
+            self._detail_header.hide()
+            self.order_detail_hint.hide()    # 隐藏提示
+            self.order_detail_group.hide()    # 隐藏详情表格
+            self.order_list_group.show()      # 显示订单列表
+            logger.info(f"[订单总表] 显示列表视图（全屏）")
     
     def _on_order_list_double_click(self, row, column):
         """双击订单列表行，打开编辑对话框"""
@@ -5032,18 +5320,85 @@ class MainWindow(QMainWindow):
         if self._selected_order_index is None:
             QMessageBox.information(self, "提示", "请先选择一个订单")
             return
-        
+
         order = self._order_summary_filtered[self._selected_order_index]
-        
+        items = order.get('items', [])
+
+        # 计算当前行对应的 item（考虑序号列和空行情况）
+        item_index = row
+        if items:
+            # 如果有 items，行号对应 item 的索引
+            if item_index >= len(items):
+                item_index = 0
+            item = items[item_index]
+            # 从 items 中获取 pi_invoice_item.id（后端返回的 id 字段）
+            pi_item_id = item.get('id')
+        else:
+            # 没有 items 时，使用订单本身
+            pi_item_id = order.get('id')
+            item = order
+
+        # 备忘录字段映射（使用表头名称）
+        headers = [self.order_detail_table.horizontalHeaderItem(i).text()
+                   for i in range(self.order_detail_table.columnCount())]
+        memo_fields_by_name = {
+            '客户需求，备注': 'remark',
+            '产品特性': 'specifications',
+            '客户最新回复': 'customer_reply',
+            '产品细节': 'product_detail',
+        }
+
+        # 文件字段映射
+        file_fields = {
+            # 列名: 文件类型
+        }
+
+        # 获取当前列的表头名称
+        current_header = headers[col] if col < len(headers) else ''
+
         # 开票情况列（40）特殊处理 - 打开上传发票对话框
         if column == 40:
-            order = self._order_summary_filtered[self._selected_order_index]
             dialog = InvoiceUploadDialog(order, row, column, self)
             dialog.exec()
             return
-        
+
+        # 备忘录列处理 - 通过表头名称匹配
+        if current_header in memo_fields_by_name:
+            field_name = memo_fields_by_name[current_header]
+
+            # 校验 pi_item_id
+            if not pi_item_id:
+                logger.warning(f"[订单总表] 订单项缺少ID，无法使用备忘录功能")
+                QMessageBox.warning(self, "提示", "该订单项缺少ID，无法使用备注功能")
+                return
+
+            from widgets.memo_dialog import MemoDialog
+            dialog = MemoDialog(
+                self.api_client,
+                entity_type="pi_item",
+                entity_id=pi_item_id,
+                field_name=field_name,
+                parent=self
+            )
+            dialog.exec()
+            return
+
+        # 文件列处理
+        if column in file_fields and pi_item_id:
+            file_type = file_fields[column]
+            from widgets.file_upload_dialog import FileUploadDialog
+            dialog = FileUploadDialog(
+                self.api_client,
+                pi_id=order.get('id'),
+                pi_no=order.get('order_no', ''),
+                file_type=file_type,
+                parent=self
+            )
+            dialog.exec()
+            return
+
         # 其他列正常打开编辑对话框
-        headers = [self.order_detail_table.horizontalHeaderItem(i).text() 
+        headers = [self.order_detail_table.horizontalHeaderItem(i).text()
                    for i in range(self.order_detail_table.columnCount())]
         if column < len(headers):
             field_name = headers[column]
@@ -5128,7 +5483,14 @@ class MainWindow(QMainWindow):
     
     def _show_order_detail(self, order):
         """显示订单详情 - 支持多产品显示"""
+        logger.info(f"[订单总表] 显示订单详情, order_no={order.get('order_no')}")
+        
         self.order_detail_hint.hide()
+        
+        # 更新顶部标题栏显示订单号
+        order_no = order.get('order_no', '')
+        self._detail_title_label.setText(f"ORDER NO.: {order_no}")
+        logger.debug(f"[订单总表] 更新标题栏: ORDER NO.: {order_no}")
         
         # 更新标题显示订单信息
         items = order.get('items', [])
@@ -5136,6 +5498,7 @@ class MainWindow(QMainWindow):
         item_count = len(items) if items else 1
         title = f"📋 订单: {order.get('order_no', '')} | 客户: {order.get('customer_name', '')} | 共 {item_count} 个产品 | 总金额: {order.get('total_amount', 0)} {currency}"
         self.order_detail_group.setTitle(title)
+        logger.debug(f"[订单总表] 详情表格标题: {title}")
         
         # 清空详情表格
         self.order_detail_table.setRowCount(0)
@@ -5327,31 +5690,38 @@ class MainWindow(QMainWindow):
     
     def load_order_summary(self):
         """加载订单总表数据"""
-        print("[INFO] 订单总表: 开始加载...")
+        logger.info(f"[订单总表] 开始加载数据...")
         self._show_loading_tip("正在加载订单总表...")
+        
+        # 刷新前重置视图状态（防止旧数据残留）
+        self._order_summary_view_mode = "list"
+        self._selected_order_index = None
+        self._update_order_summary_view()
+        logger.debug(f"[订单总表] 视图状态已重置")
         
         def fetch():
             try:
                 # 获取PI订单
                 pi_list = self.api_client.get_pi_orders() or []
-                print(f"[INFO] 订单总表: 获取到 {len(pi_list)} 条PI订单")
+                logger.info(f"[订单总表] 获取PI订单成功, 数量={len(pi_list)}")
                 
                 # 获取采购订单
                 purchase_list = self.api_client.get_purchase_orders() or []
-                print(f"[INFO] 订单总表: 获取到 {len(purchase_list)} 条采购订单")
+                logger.info(f"[订单总表] 获取采购订单成功, 数量={len(purchase_list)}")
                 
                 # 获取出货记录
                 shipment_list = self.api_client.get_shipments() or []
-                print(f"[INFO] 订单总表: 获取到 {len(shipment_list)} 条出货记录")
+                logger.info(f"[订单总表] 获取出货记录成功, 数量={len(shipment_list)}")
                 
                 # 获取客户付款
                 customer_payment_list = self.api_client.get_customer_payments() or []
-                print(f"[INFO] 订单总表: 获取到 {len(customer_payment_list)} 条客户付款")
+                logger.info(f"[订单总表] 获取客户付款成功, 数量={len(customer_payment_list)}")
                 
                 # 获取供应商付款
                 supplier_payment_list = self.api_client.get_supplier_payments() or []
-                print(f"[INFO] 订单总表: 获取到 {len(supplier_payment_list)} 条供应商付款")
+                logger.info(f"[订单总表] 获取供应商付款成功, 数量={len(supplier_payment_list)}")
                 
+                logger.info(f"[订单总表] 数据获取完成, 返回数据")
                 return {
                     'pi_list': pi_list,
                     'purchase_list': purchase_list,
@@ -5360,9 +5730,7 @@ class MainWindow(QMainWindow):
                     'supplier_payment_list': supplier_payment_list
                 }
             except Exception as e:
-                print(f"[ERROR] 订单总表: 获取数据失败: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"[订单总表] 获取数据失败: {e}", exc_info=True)
                 return None
         
         class LoaderThread(QThread):
@@ -5378,10 +5746,10 @@ class MainWindow(QMainWindow):
     
     def _on_order_summary_data_ready(self, data):
         """数据加载完成回调"""
-        print("[INFO] 订单总表: 数据加载完成，开始处理...")
+        logger.info(f"[订单总表] 数据加载完成, 开始处理...")
         
         if data is None:
-            print("[ERROR] 订单总表: 数据为空")
+            logger.error(f"[订单总表] 数据为空")
             self._hide_loading_tip()
             return
         
@@ -5394,7 +5762,7 @@ class MainWindow(QMainWindow):
             customer_payment_list = data.get('customer_payment_list', [])
             supplier_payment_list = data.get('supplier_payment_list', [])
             
-            print(f"[INFO] 订单总表: 处理 {len(pi_list)} 条PI订单")
+            logger.info(f"[订单总表] 开始处理数据, PI订单数={len(pi_list)}")
             
             # 获取客户、产品、供应商映射
             customers_raw = self.api_client.get_customers() or []
@@ -5405,10 +5773,10 @@ class MainWindow(QMainWindow):
             products = {p.get('id'): p for p in products_raw if p.get('id')}
             suppliers = {s.get('id'): s for s in suppliers_raw if s.get('id')}
             
-            print(f"[INFO] 订单总表: 映射 {len(customers)} 客户, {len(products)} 产品, {len(suppliers)} 供应商")
+            logger.info(f"[订单总表] 映射数据, 客户={len(customers)}, 产品={len(products)}, 供应商={len(suppliers)}")
             
             # 并发获取PI详情（大幅提升性能）
-            print("[INFO] 订单总表: 开始获取PI详情...")
+            logger.info(f"[订单总表] 开始并发获取PI详情...")
             pi_details = {}
             
             def fetch_pi_detail(pi):
@@ -5428,12 +5796,12 @@ class MainWindow(QMainWindow):
                     if pi_id and detail:
                         pi_details[pi_id] = detail
                     if (i + 1) % 10 == 0:
-                        print(f"[INFO] 订单总表: 已获取 {i + 1}/{len(pi_list)} 条PI详情")
+                        logger.info(f"[订单总表] 获取PI详情进度: {i + 1}/{len(pi_list)}")
             
-            print(f"[INFO] 订单总表: 获取到 {len(pi_details)} 条PI详情")
+            logger.info(f"[订单总表] 获取PI详情完成, 数量={len(pi_details)}")
             
             # 构建订单列表
-            print("[INFO] 订单总表: 开始构建订单...")
+            logger.info(f"[订单总表] 开始构建订单...")
             orders = []
             for pi in pi_list:
                 try:
@@ -5453,10 +5821,10 @@ class MainWindow(QMainWindow):
                     self._calculate_order_estimates(order)
                     orders.append(order)
                 except Exception as e:
-                    print(f"[WARN] 构建订单行失败: {e}")
+                    logger.warning(f"[订单总表] 构建订单行失败: {e}")
                     continue
             
-            print(f"[INFO] 订单总表: 构建完成, 共 {len(orders)} 条")
+            logger.info(f"[订单总表] 构建订单完成, 数量={len(orders)}")
             
             # 更新UI（在主线程）
             self._order_summary_orders = orders
@@ -5465,12 +5833,10 @@ class MainWindow(QMainWindow):
             
             self._order_summary_status.setText(f"共 {len(orders)} 条订单")
             self._hide_loading_tip()
-            print("[INFO] 订单总表: 加载完成")
+            logger.info(f"[订单总表] 加载完成, 订单总数={len(orders)}")
             
         except Exception as e:
-            print(f"[ERROR] 订单总表: 处理失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"[订单总表] 处理失败: {e}", exc_info=True)
             self._hide_loading_tip()
     
     def _calculate_order_estimates(self, order):
@@ -5588,7 +5954,14 @@ class MainWindow(QMainWindow):
         oe_number = first_item.get('oe_number', '') or ''
         remark = first_item.get('remark', '') or ''
         
-        # 尝试获取产品名称（从多种可能的字段）
+        # 使用传入的字典快速查找产品
+        product = products.get(product_id) if product_id else None
+        if product:
+            print(f"[DEBUG] 订单总表: 找到产品ID={product_id}, 产品名={product.get('name', 'N/A')}")
+        else:
+            print(f"[DEBUG] 订单总表: 未找到产品ID={product_id}, products字典keys={list(products.keys())}")
+        
+        # 获取产品名称（从多种可能的字段，注意：product需要在前面定义）
         product_name = (
             first_item.get('product_name') or 
             first_item.get('name') or 
@@ -5596,15 +5969,6 @@ class MainWindow(QMainWindow):
             first_item.get('product_code') or
             (product.get('name') if product else None)
         ) or ''
-        
-        print(f"[DEBUG] 订单总表: quantity={quantity}, unit_price={unit_price}, oe={oe_number}, product_name={product_name}")
-        
-        # 使用传入的字典快速查找产品
-        product = products.get(product_id) if product_id else None
-        if product:
-            print(f"[DEBUG] 订单总表: 找到产品ID={product_id}, 产品名={product.get('name', 'N/A')}")
-        else:
-            print(f"[DEBUG] 订单总表: 未找到产品ID={product_id}, products字典keys={list(products.keys())}")
         
         # 获取客户信息
         customer_id = pi.get('customer_id')
@@ -5952,7 +6316,17 @@ class MainWindow(QMainWindow):
         self.filter_order_summary()
     
     def _on_order_summary_double_click(self, row, column):
-        """订单总表双击编辑"""
+        """订单总表双击编辑 - 智能 Tab 定位
+        
+        根据双击的列号自动定位到对应的编辑 Tab 页：
+        - 订单信息列 → Tab0
+        - 客户信息列 → Tab1
+        - 产品信息列 → Tab2（含包装规格）
+        - 采购信息列 → Tab3（含包装方式、工厂编号等）
+        - 付款信息列 → Tab4
+        
+        未映射的列默认打开 Tab0（订单信息）
+        """
         from widgets.order_summary_edit_dialog import OrderSummaryEditDialog
         from PySide6.QtWidgets import QMessageBox
         
@@ -5975,8 +6349,13 @@ class MainWindow(QMainWindow):
         print(f"[DEBUG] 订单总表: 客户名={order_data.get('customer_name', 'N/A')}")
         print(f"[DEBUG] 订单总表: 供应商={order_data.get('supplier_name', 'N/A')}")
         
-        # 打开编辑对话框
+        # 智能定位目标 Tab
+        target_tab = self.COLUMN_TO_TAB.get(column, 0)  # 默认 Tab0
+        print(f"[DEBUG] 订单总表: 列 {column} → 目标 Tab{target_tab}")
+        
+        # 打开编辑对话框，指定默认 Tab
         dialog = OrderSummaryEditDialog(order_data, self.api_client, self)
+        dialog.set_default_tab(target_tab)  # 设置默认打开的 Tab
         dialog.saved.connect(lambda data: self._on_order_summary_saved(data, row))
         dialog.exec()
     
@@ -6108,11 +6487,16 @@ class MainWindow(QMainWindow):
             if not file_path:
                 return
             
+            orders = self._order_summary_filtered or []
+            if not orders:
+                QMessageBox.warning(self, "提示", "没有可导出的数据")
+                return
+            
             wb = Workbook()
             ws = wb.active
             ws.title = "订单总表"
             
-            # 写入表头
+            # 41列表头
             headers = [
                 "订单日期", "ORDER NO.", "客户产品编号", "OE号", "客户需求备注",
                 "产品名称", "图片", "客户型号", "OE号.1", "数量",
@@ -6137,17 +6521,59 @@ class MainWindow(QMainWindow):
                 cell.alignment = header_alignment
             
             # 写入数据
-            for row in range(self.order_summary_table.rowCount()):
-                if self.order_summary_table.isRowHidden(row):
-                    continue
-                for col in range(self.order_summary_table.columnCount()):
-                    item = self.order_summary_table.item(row, col)
-                    value = item.text() if item else ""
-                    ws.cell(row=row + 2, column=col + 1, value=value)
+            row_num = 2
+            for order in orders:
+                items = order.get('items', [])
+                if not items:
+                    items = [{}]
+                
+                for item in items:
+                    ws.cell(row=row_num, column=1, value=order.get('order_date', ''))
+                    ws.cell(row=row_num, column=2, value=order.get('order_no', ''))
+                    ws.cell(row=row_num, column=3, value=item.get('customer_code', ''))
+                    ws.cell(row=row_num, column=4, value=item.get('oe_number', ''))
+                    ws.cell(row=row_num, column=5, value=item.get('remark', ''))
+                    ws.cell(row=row_num, column=6, value=item.get('product_name', ''))
+                    ws.cell(row=row_num, column=7, value=item.get('image_url', ''))
+                    ws.cell(row=row_num, column=8, value=item.get('customer_model', ''))
+                    ws.cell(row=row_num, column=9, value=item.get('oe_number', ''))
+                    ws.cell(row=row_num, column=10, value=item.get('quantity', ''))
+                    ws.cell(row=row_num, column=11, value=item.get('unit_price', ''))
+                    ws.cell(row=row_num, column=12, value=item.get('total_price', ''))
+                    ws.cell(row=row_num, column=13, value=item.get('customer_reply', ''))
+                    ws.cell(row=row_num, column=14, value=order.get('customer_prepayment', ''))
+                    ws.cell(row=row_num, column=15, value='')
+                    ws.cell(row=row_num, column=16, value='')
+                    ws.cell(row=row_num, column=17, value=item.get('purchase_price', ''))
+                    ws.cell(row=row_num, column=18, value=item.get('freight', ''))
+                    ws.cell(row=row_num, column=19, value=item.get('packing_fee', ''))
+                    ws.cell(row=row_num, column=20, value=order.get('total_amount', ''))
+                    ws.cell(row=row_num, column=21, value=order.get('supplier_name', ''))
+                    ws.cell(row=row_num, column=22, value='')
+                    ws.cell(row=row_num, column=23, value=order.get('delivery_date', ''))
+                    ws.cell(row=row_num, column=24, value='')
+                    ws.cell(row=row_num, column=25, value='')
+                    ws.cell(row=row_num, column=26, value='')
+                    ws.cell(row=row_num, column=27, value='')
+                    ws.cell(row=row_num, column=28, value='')
+                    ws.cell(row=row_num, column=29, value=item.get('packing_type', ''))
+                    ws.cell(row=row_num, column=30, value='')
+                    ws.cell(row=row_num, column=31, value=item.get('detail_desc', ''))
+                    ws.cell(row=row_num, column=32, value=item.get('factory_code', ''))
+                    ws.cell(row=row_num, column=33, value='')
+                    ws.cell(row=row_num, column=34, value='')
+                    ws.cell(row=row_num, column=35, value='')
+                    ws.cell(row=row_num, column=36, value='')
+                    ws.cell(row=row_num, column=37, value='')
+                    ws.cell(row=row_num, column=38, value='')
+                    ws.cell(row=row_num, column=39, value=item.get('brand', ''))
+                    ws.cell(row=row_num, column=40, value=order.get('invoice_status', ''))
+                    ws.cell(row=row_num, column=41, value='')
+                    row_num += 1
             
             # 设置列宽
             for col in range(1, len(headers) + 1):
-                ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = 12
+                ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = 15
             
             wb.save(file_path)
             QMessageBox.information(self, "导出成功", f"订单总表已导出到:\n{file_path}")
@@ -6210,190 +6636,286 @@ class MainWindow(QMainWindow):
         future.add_done_callback(on_done)
 
     def load_products(self, use_cache: bool = True):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info("=" * 60)
+        logger.info("开始加载产品列表...")
+        
+        self._show_loading_tip("正在加载客户产品...")
         try:
-            # 尝试从缓存加载产品
-            products = None
-            if use_cache:
-                products = cache_manager.get(CACHE_KEYS['PRODUCTS'], max_age=300)
-            
-            if products is None:
-                print("DEBUG - 从API加载产品...")
-                products = self.api_client.get_products()
-                # 保存到缓存
-                cache_manager.set(CACHE_KEYS['PRODUCTS'], products)
+            logger.info("步骤1: 调用客户产品API...")
+            resp = self.api_client.get("/customer-products", params={"page_size": 500})
+            logger.info(f"API响应类型: {type(resp).__name__}, 响应内容: {resp}")
+
+            if resp and isinstance(resp, dict):
+                products = resp.get('items', [])
+                logger.info(f"从dict响应中获取items, 共 {len(products)} 个产品")
+            elif isinstance(resp, list):
+                products = resp
+                logger.info(f"从list响应直接获取, 共 {len(products)} 个产品")
             else:
-                print("DEBUG - 从缓存加载产品")
-            
-            # 尝试从缓存加载库存汇总
-            inventory_summary = cache_manager.get(CACHE_KEYS['INVENTORY_SUMMARY'], max_age=60)
-            if inventory_summary is None:
-                try:
-                    print("DEBUG - 从API加载库存...")
-                    inventory_summary = self.api_client.get_all_inventory_summary()
-                    cache_manager.set(CACHE_KEYS['INVENTORY_SUMMARY'], inventory_summary)
-                except Exception as e:
-                    print(f"获取库存失败: {e}")
-                    inventory_summary = {}
-            else:
-                print("DEBUG - 从缓存加载库存")
-            
+                products = resp or []
+                logger.warning(f"响应格式异常, 使用空列表: {type(resp)}")
+
+            # 清理缓存
+            logger.info("步骤2: 清理产品缓存...")
+            cache_manager.delete(CACHE_KEYS['PRODUCTS'])
+
             if products is None:
                 products = []
-            print(f"[DEBUG] 产品列表: 共加载 {len(products)} 个产品")
-            self.products_table.setRowCount(len(products))
-            
-            # 批量获取OE和客户产品数据（优化性能）
-            product_ids = [p.get('id') for p in products if p.get('id')]
-            all_oes = []
-            all_customer_products = []
+                logger.warning("产品数据为None, 已转换为空列表")
+
+            logger.info(f"步骤3: 产品数据准备完毕, 共 {len(products)} 个产品")
+
+            # 保存用户当前的选择状态（恢复时使用）
+            current_customer_id = self.product_customer_filter.currentData()
+            logger.info(f"保存当前选择: 客户ID={current_customer_id}")
+
+            # 先断开筛选信号，避免恢复选择时触发不必要的筛选
+            logger.info("步骤4: 断开筛选事件信号...")
+            signals_disconnected = False
             try:
-                if product_ids:
-                    all_oes = self.api_client.get_product_oes_batch(product_ids) or []
-                    all_customer_products = self.api_client.get_product_customers_batch(product_ids) or []
-                    print(f"[DEBUG] 产品列表: 批量获取OE={len(all_oes)}条, 客户产品={len(all_customer_products)}条")
+                self.product_customer_filter.currentIndexChanged.disconnect()
+                signals_disconnected = True
+                logger.debug("筛选事件信号已全部断开")
+            except RuntimeError as e:
+                logger.debug(f"断开信号时无现有连接: {e}")
             except Exception as e:
-                print(f"[DEBUG] 产品列表: 批量获取数据失败: {e}")
+                logger.warning(f"断开信号时发生异常: {e}")
+
+            # 清空并填充客户下拉框
+            logger.info("步骤5: 填充客户下拉框...")
+            self.product_customer_filter.clear()
+            self.product_customer_filter.addItem("全部客户", 0)
             
-            # 按product_id分组
-            oes_by_product = {}
-            for oe in all_oes:
-                pid = oe.get('product_id')
-                if pid not in oes_by_product:
-                    oes_by_product[pid] = []
-                oes_by_product[pid].append(oe)
+            customers = self.api_client.get_customers() or []
+            self._customer_filter_cache = customers
+            logger.info(f"加载客户数据: {len(customers)} 个客户")
             
-            pc_by_product = {}
-            for pc in all_customer_products:
-                pid = pc.get('product_id')
-                if pid not in pc_by_product:
-                    pc_by_product[pid] = []
-                pc_by_product[pid].append(pc)
+            for customer in customers:
+                customer_name = customer.get('customer_name') or customer.get('name') or '未知客户'
+                customer_id = customer.get('id')
+                logger.debug(f"添加客户: id={customer_id}, name={customer_name}")
+                if customer_id is not None:
+                    self.product_customer_filter.addItem(customer_name, customer_id)
+                else:
+                    logger.warning(f"客户数据缺少id字段: {customer}")
             
-            for row, p in enumerate(products):
-                product_id = p.get('id')
-                print(f"[DEBUG] 产品列表: 处理第{row}行, ID={product_id}")
-                
-                # 0: 复选框
-                checkbox = QCheckBox()
-                checkbox.setCheckState(Qt.CheckState.Unchecked)
-                checkbox.setStyleSheet("margin-left: 50%;")
-                self.products_table.setCellWidget(row, 0, checkbox)
-                
-                # 从预加载的数据中获取
-                oe_list = oes_by_product.get(product_id, [])
-                customer_product_list = pc_by_product.get(product_id, [])
-                print(f"[DEBUG] 产品列表: 行{row} - OE数量={len(oe_list)}, 客户产品数量={len(customer_product_list)}")
-                
-                # 1: 客户产品编号（从产品-客户关联获取，显示第一个客户的编号）
-                customer_product_code = ""
-                if customer_product_list:
-                    # 取第一个客户的编号
-                    first_pc = customer_product_list[0]
-                    full_code = first_pc.get('customer_product_code', '')
-                    customer_code = first_pc.get('customer_code', '')
-                    print(f"[DEBUG] 产品列表: 行{row} - full_code={full_code}, customer_code={customer_code}")
-                    if full_code and customer_code:
-                        # 去掉客户号前缀
-                        customer_product_code = full_code.replace(customer_code, "", 1).lstrip("-")
-                    else:
-                        customer_product_code = full_code or ""
-                    print(f"[DEBUG] 产品列表: 行{row} - 显示的客户产品编号={customer_product_code}")
-                self.products_table.setItem(row, 1, QTableWidgetItem(customer_product_code))
-                
-                # 2: OE号（显示主OE或"多OE号"按钮）
-                primary_oe = next((oe for oe in oe_list if oe.get('is_primary')), None)
-                if len(oe_list) > 1:
-                    # 多个OE，显示按钮
-                    btn = QPushButton("多OE号")
-                    btn.setStyleSheet("""
-                        QPushButton {
-                            background-color: #3b82f6;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            padding: 4px 8px;
-                            font-size: 11px;
-                        }
-                        QPushButton:hover { background-color: #2563eb; }
-                    """)
-                    btn.clicked.connect(lambda checked, pid=product_id, oes=oe_list: self._show_product_oe_dialog(pid, oes))
-                    self.products_table.setCellWidget(row, 2, btn)
-                elif primary_oe:
-                    self.products_table.setItem(row, 2, QTableWidgetItem(primary_oe.get('oe_number', '')))
+            # 恢复客户选择状态（信号已断开，不会触发筛选）
+            if current_customer_id and current_customer_id != 0:
+                customer_index = self.product_customer_filter.findData(current_customer_id)
+                if customer_index >= 0:
+                    self.product_customer_filter.setCurrentIndex(customer_index)
+                    logger.info(f"已恢复客户选择: ID={current_customer_id}, Index={customer_index}")
                 else:
-                    self.products_table.setItem(row, 2, QTableWidgetItem(p.get('oe_number', '') or '-'))
-                
-                # 3: 图片
-                image_label = QLabel()
-                image_label.setFixedSize(60, 60)
-                image_label.setStyleSheet("border: 1px solid #e5e7eb;")
-                image_label.setAlignment(Qt.AlignCenter)
-                
-                image_url = p.get('default_image_url')
-                if image_url:
-                    self.load_image_async(image_label, image_url)
-                else:
-                    image_label.setText("暂无图片")
-                
-                image_label.mousePressEvent = lambda event, prod=p: self.view_product_images(prod.get('id'))
-                image_label.setCursor(Qt.PointingHandCursor)
-                self.products_table.setCellWidget(row, 3, image_label)
-                
-                # 4: 产品名称（detail_desc）
-                self.products_table.setItem(row, 4, QTableWidgetItem(p.get('detail_desc', '')))
-                
-                # 5: 客户型号（从产品-客户关联获取，显示客户的）
-                customer_model = ""
-                if customer_product_list:
-                    customer_model = customer_product_list[0].get('customer_model', '') or ""
-                self.products_table.setItem(row, 5, QTableWidgetItem(customer_model))
-                
-                # 6: 客户号（显示客户名）
-                customer_name = ""
-                if customer_product_list:
-                    # 需要通过customer_id获取客户名
-                    pass  # 暂不显示，等待确认
-                self.products_table.setItem(row, 6, QTableWidgetItem(""))  # 客户号列
-                
-                # 7: 产品特性（品牌）
-                self.products_table.setItem(row, 7, QTableWidgetItem(p.get('brand', '') or '-'))
-                
-                # 8: 数量（库存）
-                stock_qty = inventory_summary.get(product_id, 0)
-                stock_item = QTableWidgetItem(str(int(stock_qty)) if stock_qty else '0')
-                if stock_qty > 0:
-                    stock_item.setForeground(QBrush(QColor("#10b981")))
-                else:
-                    stock_item.setForeground(QBrush(QColor("#6b7280")))
-                stock_item.setTextAlignment(Qt.AlignCenter)
-                self.products_table.setItem(row, 8, stock_item)
-                
-                # 9: 报价（EXW含税价）
-                price = p.get('exw_price_incl', 0)
-                price_text = f"{price} USD" if price else "-"
-                price_item = QTableWidgetItem(price_text)
-                price_item.setTextAlignment(Qt.AlignRight)
-                self.products_table.setItem(row, 9, price_item)
-                
-                # 10: 编辑按钮
-                def create_edit_callback(product):
-                    return lambda: self.edit_product(product)
-                
-                action_widget = QWidget()
-                action_layout = QHBoxLayout()
-                action_layout.setContentsMargins(0, 0, 0, 0)
-                
-                edit_btn = QPushButton("编辑")
-                edit_btn.setFixedWidth(50)
-                edit_btn.clicked.connect(create_edit_callback(p))
-                action_layout.addWidget(edit_btn)
-                
-                action_widget.setLayout(action_layout)
-                self.products_table.setCellWidget(row, 10, action_widget)
-                
-            self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
+                    logger.warning(f"客户ID {current_customer_id} 不存在，恢复到'全部客户'")
+                    self.product_customer_filter.setCurrentIndex(0)
+            else:
+                self.product_customer_filter.setCurrentIndex(0)
+                logger.info("恢复客户选择: 全部客户")
+
+            # 缓存产品数据
+            logger.info("步骤6: 缓存产品数据...")
+            self._product_cache = products
+
+            # 填充表格
+            logger.info("步骤7: 填充产品表格...")
+            self._populate_products_table(products)
+            logger.info(f"表格填充完成, 显示 {len(products)} 条记录")
+
+            # 重新绑定筛选事件
+            logger.info("步骤8: 重新绑定筛选事件...")
+            self.product_customer_filter.currentIndexChanged.connect(self.filter_products)
+            logger.debug("客户筛选事件已绑定")
+
+            # 手动触发一次筛选，确保显示正确的数据
+            if signals_disconnected:
+                logger.info("步骤10: 手动触发筛选以应用当前筛选条件...")
+                self.filter_products()
+
+            logger.info("步骤11: 隐藏加载提示...")
+            self._hide_loading_tip()
+
+            logger.info("=" * 60)
+            logger.info("产品列表加载完成!")
+            logger.info("=" * 60)
+            
         except Exception as e:
+            logger.error(f"加载产品列表时发生异常: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f"异常堆栈: {traceback.format_exc()}")
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载产品数据失败: {str(e)}")
+
+    def _populate_products_table(self, products):
+        """填充产品表格数据"""
+        self.products_table.setRowCount(len(products))
+
+        for row, p in enumerate(products):
+            product_id = p.get('id')
+
+            # 0: 复选框
+            checkbox = QCheckBox()
+            checkbox.setCheckState(Qt.CheckState.Unchecked)
+            checkbox.setStyleSheet("margin-left: 50%;")
+            self.products_table.setCellWidget(row, 0, checkbox)
+
+            codes = p.get('codes', []) or []
+            oes = p.get('oes', []) or []
+
+            # 1: 客户产品编号
+            primary_code = p.get('primary_code', '') or ''
+            self.products_table.setItem(row, 1, QTableWidgetItem(primary_code))
+
+            # 2: 系统编号
+            full_system_code = p.get('system_code', '') or ''
+            display_code = full_system_code[-9:] if len(full_system_code) >= 9 else full_system_code
+            system_code_item = QTableWidgetItem(display_code)
+            system_code_item.setForeground(Qt.blue)
+            self.products_table.setItem(row, 2, system_code_item)
+
+            # 3: OE号
+            primary_oe = p.get('primary_oe', '') or ''
+            if len(oes) > 1:
+                btn = QPushButton("多OE号")
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3b82f6;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-size: 11px;
+                    }
+                    QPushButton:hover { background-color: #2563eb; }
+                """)
+                btn.clicked.connect(lambda checked, pid=product_id, oes_list=oes: self._show_product_oe_dialog(pid, oes_list))
+                self.products_table.setCellWidget(row, 3, btn)
+            else:
+                self.products_table.setItem(row, 3, QTableWidgetItem(primary_oe))
+
+            # 4: 图片
+            image_label = QLabel()
+            image_label.setFixedSize(60, 60)
+            image_label.setStyleSheet("border: 1px solid #e5e7eb;")
+            image_label.setAlignment(Qt.AlignCenter)
+
+            image_url = p.get('image_url')
+            if image_url:
+                self.load_image_async(image_label, image_url)
+            else:
+                image_label.setText("暂无图片")
+
+            image_label.mousePressEvent = lambda event, prod=p: self.view_product_images(prod)
+            image_label.setCursor(Qt.PointingHandCursor)
+            self.products_table.setCellWidget(row, 4, image_label)
+
+            # 5: 产品名称
+            self.products_table.setItem(row, 5, QTableWidgetItem(p.get('product_name', '') or p.get('detail_desc', '')))
+
+            # 6: 客户型号
+            customer_model = p.get('customer_model', '') or ''
+            self.products_table.setItem(row, 6, QTableWidgetItem(customer_model))
+
+            # 7: 客户名称
+            customer_id = p.get('customer_id')
+            customer_display_name = '-'
+            if hasattr(self, '_customer_filter_cache'):
+                for customer in self._customer_filter_cache:
+                    if customer.get('id') == customer_id:
+                        customer_display_name = customer.get('customer_name', customer.get('name', '-'))
+                        break
+            self.products_table.setItem(row, 7, QTableWidgetItem(customer_display_name))
+
+            # 8: 类别
+            category_code = p.get('category_id', '')
+            category_name = '-'
+            if hasattr(self, '_category_filter_cache'):
+                for category in self._category_filter_cache:
+                    if category.get('code') == category_code:
+                        category_name = category.get('name', '-')
+                        break
+            self.products_table.setItem(row, 8, QTableWidgetItem(category_name))
+
+            # 9: 颜色
+            self.products_table.setItem(row, 9, QTableWidgetItem(p.get('color', '') or '-'))
+
+            # 10: 品牌
+            self.products_table.setItem(row, 10, QTableWidgetItem(p.get('brand', '') or '-'))
+
+            # 11: USD 价格
+            price_usd = p.get('price_usd', 0) or 0
+            price_usd_item = QTableWidgetItem(f"${price_usd:.2f}" if price_usd else "-")
+            price_usd_item.setTextAlignment(Qt.AlignRight)
+            self.products_table.setItem(row, 11, price_usd_item)
+
+            # 12: RMB 价格
+            price_rmb = p.get('price_rmb', 0) or 0
+            price_rmb_item = QTableWidgetItem(f"¥{price_rmb:.2f}" if price_rmb else "-")
+            price_rmb_item.setTextAlignment(Qt.AlignRight)
+            self.products_table.setItem(row, 12, price_rmb_item)
+
+            # 13: 规格描述
+            specifications = p.get('specifications', '') or ''
+            if specifications and len(specifications) > 20:
+                display_spec = specifications[:20] + '...'
+            else:
+                display_spec = specifications or '-'
+            self.products_table.setItem(row, 13, QTableWidgetItem(display_spec))
+
+            # 14: 编辑按钮
+            def create_edit_callback(product):
+                return lambda: self.edit_product(product)
+
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            action_layout.setContentsMargins(0, 0, 0, 0)
+
+            edit_btn = QPushButton("编辑")
+            edit_btn.setFixedWidth(50)
+            edit_btn.clicked.connect(create_edit_callback(p))
+            action_layout.addWidget(edit_btn)
+
+            action_widget.setLayout(action_layout)
+            self.products_table.setCellWidget(row, 14, action_widget)
+
+        self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
+
+    def filter_by_customer(self):
+        """根据客户筛选产品"""
+        customer_id = self.product_customer_filter.currentData()
+        if customer_id == 0:
+            self.search_products()
+            return
+
+        keyword = self.search_input.text().strip()
+        category_id = self.category_filter.currentData()
+        category_id = category_id if category_id != 0 else None
+
+        try:
+            products = self.api_client.search_products(keyword, category_id, customer_id)
+            self._populate_products_table(products)
+        except Exception as e:
+            if hasattr(self, '_logger'):
+                self._logger.error(f"客户筛选失败: {str(e)}")
+            print(f"客户筛选失败: {e}")
+
+    def filter_products(self):
+        """根据筛选条件过滤产品列表（本地缓存过滤）"""
+        if not self._product_cache:
+            return
+
+        customer_id = self.product_customer_filter.currentData()
+
+        filtered = []
+        for product in self._product_cache:
+            if customer_id and product.get('customer_id') != customer_id:
+                continue
+
+            filtered.append(product)
+
+        self._populate_products_table(filtered)
 
     def view_product_images(self, product):
         """查看产品图片"""
@@ -6493,11 +7015,14 @@ class MainWindow(QMainWindow):
         for row in range(self.products_table.rowCount()):
             checkbox = self.products_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                # 获取产品数据
-                product_id = int(self.products_table.item(row, 2).text())
-                product_code = self.products_table.item(row, 9)  # 产品编号在第10列（索引9）
+                # 获取产品ID（从隐藏的第12列）
+                id_item = self.products_table.item(row, 12)
+                if not id_item:
+                    continue
+                product_id = int(id_item.text())
+                product_code = self.products_table.item(row, 1)  # 客户产品编号在第2列（索引1）
                 if not product_code:
-                    product_code = self.products_table.item(row, 10).text()  # 或者从隐藏列获取
+                    product_code = self.products_table.item(row, 12)  # 或者从隐藏列获取
                 else:
                     product_code = product_code.text()
                 
@@ -6563,7 +7088,7 @@ class MainWindow(QMainWindow):
         
         try:
             # 搜索时显示产品编号列
-            self.products_table.setColumnHidden(10, False)
+            self.products_table.setColumnHidden(11, False)
             print(f"搜索参数 - 关键词: '{keyword}', 类别ID: {category_id}")
             products = self.api_client.search_products(keyword, category_id)
             print(f"搜索结果数量: {len(products)}")
@@ -6675,6 +7200,9 @@ class MainWindow(QMainWindow):
                 edit_btn.clicked.connect(lambda _, prod=p: self.edit_product(prod))
                 self.products_table.setCellWidget(row, 10, edit_btn)
                 
+                # 11: 隐藏的ID列
+                self.products_table.setItem(row, 11, QTableWidgetItem(str(product_id)))
+                
             self.select_all_checkbox.setCheckState(Qt.CheckState.Unchecked)
         except Exception as e:
             print(f"搜索错误: {str(e)}")
@@ -6708,7 +7236,8 @@ class MainWindow(QMainWindow):
         for row in range(self.products_table.rowCount()):
             checkbox = self.products_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                id_item = self.products_table.item(row, 2)
+                # 从隐藏的第13列获取产品ID
+                id_item = self.products_table.item(row, 13)
                 if id_item:
                     selected_ids.append(int(id_item.text()))
         return selected_ids
@@ -6748,24 +7277,48 @@ class MainWindow(QMainWindow):
 
         if reply == QMessageBox.Ok:
             try:
+                success_count = 0
+                fail_count = 0
                 for product_id in selected_ids:
-                    self.api_client.delete_product(product_id)
-                QMessageBox.information(self, "成功", f"已成功删除 {len(selected_ids)} 个产品")
-                self.load_products()
+                    print(f"DEBUG - 删除产品ID: {product_id}")
+                    result = self.api_client.delete_product(product_id)
+                    if result:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                
+                if fail_count > 0:
+                    QMessageBox.warning(self, "部分失败", f"成功删除 {success_count} 个，失败 {fail_count} 个")
+                else:
+                    QMessageBox.information(self, "成功", f"已成功删除 {success_count} 个产品（将在24小时后物理删除）")
+                # 强制刷新，不使用缓存
+                self.load_products(use_cache=False)
             except Exception as e:
                 QMessageBox.warning(self, "错误", f"批量删除失败: {str(e)}")
 
-    def view_product_images(self, product_id):
+    def view_product_images(self, product):
+        """查看产品图片"""
+        # 获取产品图片信息
+        image_url = product.get('image_url')
+        sub_images = product.get('sub_images', [])
+        
+        # 合并主图和副图
+        all_images = []
+        if image_url:
+            all_images.append(('主图', image_url))
+        if sub_images:
+            for i, url in enumerate(sub_images):
+                all_images.append((f'副图{i+1}', url))
+        
+        if not all_images:
+            QMessageBox.information(self, "图片查看", f"产品暂无图片")
+            return
+        
         try:
-            images = self.api_client.get_product_images(product_id)
-            
-            if not images:
-                QMessageBox.information(self, "提示", "该产品暂无图片")
-                return
-
+            # 创建图片查看对话框
             dialog = QDialog(self)
             dialog.setWindowTitle("产品图片")
-            dialog.setMinimumSize(800, 600)
+            dialog.setMinimumSize(600, 600)
             
             layout = QVBoxLayout()
             
@@ -6774,29 +7327,24 @@ class MainWindow(QMainWindow):
             scroll_content = QWidget()
             scroll_layout = QVBoxLayout(scroll_content)
             
-            for i, image_data in enumerate(images, 1):
-                image_url = image_data.get('image_url', '')
-                if image_url:
-                    try:
-                        response = requests.get(image_url)
-                        response.raise_for_status()
+            import requests
+            for i, (name, url) in enumerate(all_images, 1):
+                try:
+                    response = requests.get(url, timeout=10)
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(response.content)
+                    
+                    if not pixmap.isNull():
+                        label = QLabel(f"{name}")
+                        label.setFont(get_font(12, QFont.Weight.Bold))
+                        scroll_layout.addWidget(label)
                         
-                        pixmap = QPixmap()
-                        pixmap.loadFromData(response.content)
-                        
-                        if not pixmap.isNull():
-                            label = QLabel(f"图片 {i}")
-                            label.setFont(get_font(12, QFont.Weight.Bold))
-                            scroll_layout.addWidget(label)
-                            
-                            image_label = QLabel()
-                            image_label.setPixmap(pixmap.scaled(700, 500, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-                            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                            scroll_layout.addWidget(image_label)
-                        else:
-                            scroll_layout.addWidget(QLabel(f"图片 {i} 加载失败"))
-                    except Exception as e:
-                        scroll_layout.addWidget(QLabel(f"图片 {i} 加载失败: {str(e)}"))
+                        image_label = QLabel()
+                        image_label.setPixmap(pixmap.scaled(500, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                        scroll_layout.addWidget(image_label)
+                except Exception as e:
+                    scroll_layout.addWidget(QLabel(f"{name} 加载失败"))
             
             scroll_area.setWidget(scroll_content)
             layout.addWidget(scroll_area)
@@ -7084,9 +7632,11 @@ class MainWindow(QMainWindow):
                 edit_btn.clicked.connect(lambda _, s=s: self.edit_supplier(s))
                 self.suppliers_table.setCellWidget(row, 7, edit_btn)
         except Exception as e:
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载供应商数据失败: {str(e)}")
 
     def load_pi_orders(self):
+        self._show_loading_tip("正在加载PI订单...")
         try:
             pi_orders = self.api_client.get_pi_orders()
             if pi_orders is None:
@@ -7153,9 +7703,11 @@ class MainWindow(QMainWindow):
                     export_btn.clicked.connect(lambda _, p=pi: self.export_pi(p))
                     self.pi_table.setCellWidget(row, 9, export_btn)
         except Exception as e:
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载PI订单数据失败: {str(e)}")
 
     def load_purchase_orders(self):
+        self._show_loading_tip("正在加载采购订单...")
         try:
             purchase_orders = self.api_client.get_purchase_orders()
             if purchase_orders is None:
@@ -7175,9 +7727,11 @@ class MainWindow(QMainWindow):
                 edit_btn.clicked.connect(lambda _, p=po: self.edit_purchase(p))
                 self.purchase_table.setCellWidget(row, 6, edit_btn)
         except Exception as e:
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载采购订单数据失败: {str(e)}")
 
     def load_shipments(self):
+        self._show_loading_tip("正在加载出货数据...")
         try:
             shipments = self.api_client.get_shipments()
             if shipments is None:
@@ -7197,9 +7751,11 @@ class MainWindow(QMainWindow):
                 edit_btn.clicked.connect(lambda _, s=s: self.edit_shipment(s))
                 self.shipment_table.setCellWidget(row, 6, edit_btn)
         except Exception as e:
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载出货数据失败: {str(e)}")
 
     def load_customer_payments(self):
+        self._show_loading_tip("正在加载客户付款...")
         try:
             payments = self.api_client.get_customer_payments()
             if payments is None:
@@ -7217,9 +7773,11 @@ class MainWindow(QMainWindow):
                 edit_btn.clicked.connect(lambda _, p=p: self.edit_customer_payment(p))
                 self.customer_payment_table.setCellWidget(row, 5, edit_btn)
         except Exception as e:
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载客户付款数据失败: {str(e)}")
 
     def load_supplier_payments(self):
+        self._show_loading_tip("正在加载供应商付款...")
         try:
             payments = self.api_client.get_supplier_payments()
             if payments is None:
@@ -7238,6 +7796,7 @@ class MainWindow(QMainWindow):
                 edit_btn.clicked.connect(lambda _, p=p: self.edit_supplier_payment(p))
                 self.supplier_payment_table.setCellWidget(row, 6, edit_btn)
         except Exception as e:
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载供应商付款数据失败: {str(e)}")
 
     # ========== 异步加载方法 ==========
@@ -7441,7 +8000,8 @@ class MainWindow(QMainWindow):
         self._load_async(
             self.api_client.get_shipments,
             self._update_shipment_table,
-            "加载出货数据失败"
+            "加载出货数据失败",
+            loading_msg="正在加载出货数据..."
         )
 
     def _update_shipment_table(self, shipments):
@@ -7592,7 +8152,8 @@ class MainWindow(QMainWindow):
         self._load_async(
             self.api_client.get_customer_payments,
             self._update_customer_payment_table,
-            "加载客户付款失败"
+            "加载客户付款失败",
+            loading_msg="正在加载客户付款..."
         )
 
     def _update_customer_payment_table(self, payments):
@@ -7616,7 +8177,8 @@ class MainWindow(QMainWindow):
         self._load_async(
             self.api_client.get_supplier_payments,
             self._update_supplier_payment_table,
-            "加载供应商付款失败"
+            "加载供应商付款失败",
+            loading_msg="正在加载供应商付款..."
         )
 
     def _update_supplier_payment_table(self, payments):
@@ -7724,17 +8286,21 @@ class MainWindow(QMainWindow):
         self._load_async(
             self.api_client.get_inventories,
             self._populate_inventories,
-            "加载库存失败"
+            "加载库存失败",
+            loading_msg="正在加载库存数据..."
         )
 
     def load_inventories(self):
         """加载库存数据 - 按OE号分组显示（参考供应商方案模式）"""
+        self._show_loading_tip("正在加载库存...")
         try:
             inventories = self.api_client.get_inventories()
             if inventories is None:
                 inventories = []
             self._populate_inventories(inventories)
+            self._hide_loading_tip()
         except Exception as e:
+            self._hide_loading_tip()
             QMessageBox.warning(self, "错误", f"加载库存数据失败: {str(e)}")
 
     def _populate_inventories(self, inventories):
@@ -7755,12 +8321,9 @@ class MainWindow(QMainWindow):
             print(f"填充库存数据失败: {e}")
 
     def load_products_async(self):
-        """异步加载产品数据"""
-        self._load_async(
-            self.api_client.get_products,
-            self.load_products_callback,
-            "加载产品失败"
-        )
+        """异步加载产品数据 - 初次强制刷新"""
+        # 初次加载时强制刷新，不使用缓存
+        self.load_products(use_cache=False)
 
     def load_products_callback(self, products):
         """产品数据加载完成后更新UI"""
@@ -7887,6 +8450,9 @@ class MainWindow(QMainWindow):
                 
                 action_widget.setLayout(action_layout)
                 self.products_table.setCellWidget(row, 10, action_widget)  # 修复：编辑按钮应该在列10
+                
+                # 11: 隐藏的ID列
+                self.products_table.setItem(row, 11, QTableWidgetItem(str(product_id)))
         except Exception as e:
             print(f"更新产品表格失败: {e}")
 
@@ -8156,8 +8722,10 @@ class MainWindow(QMainWindow):
     def add_product(self):
         print("add_product called, dept_id:", self.dept_id)
         try:
-            dialog = ProductDialog(self.api_client, self.dept_id)
-            print("ProductDialog created successfully")
+            # 使用新的客户产品对话框
+            from widgets.customer_product_dialog import CustomerProductDialog
+            dialog = CustomerProductDialog(self.api_client)
+            print("CustomerProductDialog created successfully")
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.load_products()
         except Exception as e:
@@ -8166,15 +8734,22 @@ class MainWindow(QMainWindow):
 
     def on_product_double_click(self, index):
         row = index.row()
-        product_id = self.products_table.item(row, 2).text()
+        # 从隐藏的第13列获取产品ID
+        id_item = self.products_table.item(row, 13)
+        if not id_item:
+            QMessageBox.warning(self, "错误", "无法获取产品ID")
+            return
+        product_id = id_item.text()
         try:
-            product = self.api_client.get_product_detail(int(product_id))
+            # 使用新的客户产品对话框
+            product = self.api_client.get(f"/customer-products/{product_id}")
             self.edit_product(product)
         except Exception as e:
             QMessageBox.warning(self, "错误", f"加载产品信息失败: {str(e)}")
 
     def edit_product(self, product):
-        dialog = ProductDialog(self.api_client, self.dept_id, product)
+        from widgets.customer_product_dialog import CustomerProductDialog
+        dialog = CustomerProductDialog(self.api_client, product)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.load_products()
 

@@ -59,7 +59,7 @@ def get_products(db: Session, skip: int = 0, limit: int = 100, status: int = Non
         query = query.filter(PrdProduct.status == status)
     return query.offset(skip).limit(limit).all()
 
-def search_products(db: Session, keyword: str = "", category_id: int = None, status: int = None):
+def search_products(db: Session, keyword: str = "", category_id: int = None, status: int = None, customer_id: int = None):
     query = db.query(PrdProduct)
     
     if keyword:
@@ -77,6 +77,17 @@ def search_products(db: Session, keyword: str = "", category_id: int = None, sta
     
     if status is not None:
         query = query.filter(PrdProduct.status == status)
+    
+    if customer_id is not None:
+        from models import PrdCustomerProduct
+        product_ids = db.query(PrdCustomerProduct.product_id).filter(
+            PrdCustomerProduct.customer_id == customer_id
+        ).distinct().all()
+        product_ids = [p[0] for p in product_ids]
+        if product_ids:
+            query = query.filter(PrdProduct.id.in_(product_ids))
+        else:
+            return []
     
     return query.all()
 
