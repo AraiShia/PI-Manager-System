@@ -163,6 +163,8 @@ class SubImageWidget(QWidget):
     
     def _rebuild(self):
         """重建图片显示 - 使用网格布局"""
+        print(f"[DEBUG] _rebuild called, images count: {len(self.images)}")
+
         while self.container_layout.count():
             item = self.container_layout.takeAt(0)
             if item.widget():
@@ -179,6 +181,8 @@ class SubImageWidget(QWidget):
         grid_layout = QGridLayout(grid_widget)
         grid_layout.setSpacing(10)
         grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setHorizontalSpacing(10)
+        grid_layout.setVerticalSpacing(10)
 
         cols = 4
 
@@ -260,7 +264,11 @@ class SubImageWidget(QWidget):
 
         grid_layout.addWidget(add_widget, add_row, 0, 1, 1)
 
+        print(f"[DEBUG] grid_widget created, items in grid_layout: {grid_layout.count()}")
+        print(f"[DEBUG] add_widget added at row={add_row}, col=0")
+
         self.container_layout.addWidget(grid_widget)
+        print(f"[DEBUG] container_layout now has {self.container_layout.count()} items")
     
     def _load_image_async(self, url):
         worker = ImageLoadWorker(url, self)
@@ -284,8 +292,15 @@ class SubImageWidget(QWidget):
             del self.loading_labels[url]
     
     def _add_new_image(self):
+        print(f"[DEBUG] _add_new_image called")
+        print(f"[DEBUG] parent: {self.parent()}")
+        print(f"[DEBUG] parent type: {type(self.parent()).__name__}")
+        print(f"[DEBUG] has add_sub_image: {hasattr(self.parent(), 'add_sub_image')}")
+
         if hasattr(self.parent(), 'add_sub_image'):
             self.parent().add_sub_image()
+        else:
+            print(f"[ERROR] parent doesn't have add_sub_image method")
     
     def get_images(self):
         return self.images
