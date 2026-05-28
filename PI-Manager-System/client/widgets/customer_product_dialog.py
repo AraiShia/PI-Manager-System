@@ -295,12 +295,14 @@ class SubImageWidget(QWidget):
         print(f"[DEBUG] _add_new_image called")
         print(f"[DEBUG] parent: {self.parent()}")
         print(f"[DEBUG] parent type: {type(self.parent()).__name__}")
-        print(f"[DEBUG] has add_sub_image: {hasattr(self.parent(), 'add_sub_image')}")
+        print(f"[DEBUG] window: {self.window()}")
+        print(f"[DEBUG] window type: {type(self.window()).__name__}")
 
-        if hasattr(self.parent(), 'add_sub_image'):
-            self.parent().add_sub_image()
+        dialog = self.window()
+        if hasattr(dialog, 'add_sub_image'):
+            dialog.add_sub_image()
         else:
-            print(f"[ERROR] parent doesn't have add_sub_image method")
+            print(f"[ERROR] window doesn't have add_sub_image method")
     
     def get_images(self):
         return self.images
@@ -373,6 +375,7 @@ class CustomerProductDialog(QDialog):
         self.refresh_oes_table()
     
     def init_ui(self):
+        print("[DEBUG] init_ui started")
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
@@ -472,9 +475,13 @@ class CustomerProductDialog(QDialog):
         image_layout.addLayout(main_image_layout)
         
         sub_image_layout = QVBoxLayout()
-        sub_image_layout.addWidget(QLabel("副图（横向滚动）"))
+        sub_image_layout.addWidget(QLabel("副图（垂直滚动）"))
+        print("[DEBUG] creating SubImageWidget...")
         self.sub_image_widget = SubImageWidget(self)
+        print(f"[DEBUG] SubImageWidget created, type: {type(self.sub_image_widget).__name__}")
+        print("[DEBUG] adding SubImageWidget to layout...")
         sub_image_layout.addWidget(self.sub_image_widget)
+        print("[DEBUG] SubImageWidget added to layout")
         
         image_layout.addLayout(sub_image_layout)
         image_group.setLayout(image_layout)
@@ -485,6 +492,10 @@ class CustomerProductDialog(QDialog):
         
         for url in self.sub_images:
             self.sub_image_widget.add_image(url)
+
+        print("[DEBUG] calling _rebuild to show add button...")
+        self.sub_image_widget._rebuild()
+        print("[DEBUG] init_ui completed")
         
         # 编号管理
         codes_group = QGroupBox("客户产品编号管理")
