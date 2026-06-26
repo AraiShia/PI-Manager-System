@@ -1,0 +1,331 @@
+# ============================================================
+# 单条订单对话框 - Qt前端实现
+# 文件：client/widgets/single_order_dialog.py
+# 创建日期：2026-06-01
+# 用途：单条订单快速创建（使用搜索模式筛选产品）
+# ============================================================
+
+from typing import List, Dict, Optional
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton, 
+    QLabel, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
+    QMessageBox, QDateEdit, QListWidget, QListWidgetItem,
+    QWidget, QAbstractItemView
+)
+from PySide6.QtCore import Qt, QTimer, Signal, QDate, QThread
+from PySide6.QtGui import QFont
+
+import os
+
+
+class CustomerLoader(QThread):
+    """客户列表加载线程"""
+    finished = Signal(list)
+    error = Signal(str)
+    
+    def __init__(self, api_client):
+        super().__init__()
+        self.api_client = api_client
+    
+    def run(self):
+        try:
+            response = self.api_client.get("/customers/")
+            if response and isinstance(response, list):
+                self.finished.emit(response)
+            else:
+                self.error.emit("加载客户列表失败")
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class SingleOrderDialog(QDialog):
+    """
+    单条订单快速创建对话框
+    
+    功能：
+    - 选择客户
+    - 搜索并选择产品（输入即搜索模式）
+    - 输入数量和单价
+    - 自动计算金额
+    """
+    
+    def __init__(self, api_client, parent=None, customer_id=None, mode='import'):
+        """
+        Args:
+            api_client: API 客户端
+            parent: 父窗口
+            customer_id: 预选客户 ID（补充模式下使用）
+            mode: 'import' (默认，下单模式) | 'supplement' (补充单条产品到预览)
+        """
+        super().__init__(parent)
+        self.api_client = api_client
+        self.customers = []
+        self.search_results = []
+        self.selected_product = None
+        # 2026-06-11 兼容 order_import_dialog.open_single_order_dialog 调用
+        self._preset_customer_id = customer_id
+        self._mode = mode
+        self._captured_product_data = None  # supplement 模式下保存的产品数据
+
+        self.setWindowTitle("补充单条产品" if mode == 'supplement' else "单条新增订单")
+        self.setMinimumSize(500, 480)
+        self.init_ui()
+        self.load_customers_async()
+
+    def get_product_data(self) -> dict:
+        """
+        补充模式下返回当前录入的产品数据；
+        其他模式返回 None 或最近一次捕获的数据。
+        """
+        return self._captured_product_data
+
+    def _try_preselect_customer(self):
+        """客户列表加载完成后，若传入了 preset customer_id 则预选"""
+        if self._preset_customer_id is None:
+            return
+        for i in range(self.customer_combo.count()):
+            if self.customer_combo.itemData(i) == self._preset_customer_id:
+                self.customer_combo.setCurrentIndex(i)
+                self.customer_combo.setEnabled(False)  # 锁定客户不可改
+                break
+    
+    def init_ui(self):
+        """初始化UI"""
+        layout = QVBoxLayout(self)
+        
+        title = QLabel("单条新增订单")
+        title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        
+        form_layout = QFormLayout()
+        
+        self.customer_combo = QComboBox()
+        self.customer_combo.setMinimumWidth(300)
+        self.customer_combo.currentIndexChanged.connect(self.on_customer_changed)
+        form_layout.addRow("客户:", self.customer_combo)
+        
+        self.product_search_input = QLineEdit()
+        self.product_search_input.setPlaceholderText("输入OE号或产品名称搜索...")
+        self.product_search_input.textChanged.connect(self.on_search_text_changed)
+        self.product_search_input.returnPressed.connect(self.select_first_result)
+        form_layout.addRow("产品搜索:", self.product_search_input)
+        
+        self.search_results_list = QListWidget()
+        self.search_results_list.setMaximumHeight(120)
+        self.search_results_list.setAlternatingRowColors(True)
+        self.search_results_list.itemClicked.connect(self.on_result_selected)
+        form_layout.addRow("", self.search_results_list)
+        
+        self.selected_product_label = QLabel("未选择产品")
+        self.selected_product_label.setStyleSheet("color: #666; font-style: italic;")
+        form_layout.addRow("已选产品:", self.selected_product_label)
+        
+        self.customer_code_input = QLineEdit()
+        self.customer_code_input.setPlaceholderText("客户产品编号")
+        form_layout.addRow("客户产品编号:", self.customer_code_input)
+        
+        self.oe_number_input = QLineEdit()
+        self.oe_number_input.setPlaceholderText("OE号")
+        form_layout.addRow("OE号:", self.oe_number_input)
+        
+        self.product_desc_input = QLineEdit()
+        self.product_desc_input.setPlaceholderText("产品描述")
+        form_layout.addRow("产品描述:", self.product_desc_input)
+        
+        self.quantity_spin = QSpinBox()
+        self.quantity_spin.setMinimum(1)
+        self.quantity_spin.setMaximum(999999)
+        self.quantity_spin.setValue(1)
+        self.quantity_spin.valueChanged.connect(self.calculate_amount)
+        form_layout.addRow("数量:", self.quantity_spin)
+        
+        self.unit_price_spin = QDoubleSpinBox()
+        self.unit_price_spin.setMinimum(0.01)
+        self.unit_price_spin.setMaximum(999999.99)
+        self.unit_price_spin.setDecimals(2)
+        self.unit_price_spin.setPrefix("$ ")
+        self.unit_price_spin.valueChanged.connect(self.calculate_amount)
+        form_layout.addRow("单价(USD):", self.unit_price_spin)
+        
+        self.amount_label = QLabel("$ 0.00")
+        self.amount_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        form_layout.addRow("合计金额:", self.amount_label)
+        
+        self.delivery_date_edit = QDateEdit()
+        self.delivery_date_edit.setDate(QDate.currentDate().addDays(30))
+        self.delivery_date_edit.setCalendarPopup(True)
+        form_layout.addRow("交货日期:", self.delivery_date_edit)
+        
+        self.remark_input = QLineEdit()
+        self.remark_input.setPlaceholderText("备注（可选）")
+        form_layout.addRow("备注:", self.remark_input)
+        
+        layout.addLayout(form_layout)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.setStyleSheet("padding: 8px 16px;")
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("保存")
+        save_btn.clicked.connect(self.save_order)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                font-weight: bold;
+                padding: 8px 20px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+        """)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        self.search_timer = QTimer()
+        self.search_timer.setSingleShot(True)
+        self.search_timer.timeout.connect(self.perform_search)
+    
+    def load_customers_async(self):
+        """异步加载客户列表"""
+        self.customer_combo.addItem("加载中...")
+        self.customer_combo.setEnabled(False)
+        
+        self.customer_loader = CustomerLoader(self.api_client)
+        self.customer_loader.finished.connect(self.on_customers_loaded)
+        self.customer_loader.error.connect(self.on_customers_error)
+        self.customer_loader.start()
+    
+    def on_customers_loaded(self, customers):
+        """客户列表加载完成"""
+        self.customers = customers
+        self.customer_combo.clear()
+        for customer in self.customers:
+            display = f"{customer.get('customer_code', '')} - {customer.get('customer_name', '')}"
+            self.customer_combo.addItem(display, customer.get('id'))
+        self.customer_combo.setEnabled(True)
+        # 2026-06-11 补充模式预选客户
+        self._try_preselect_customer()
+    
+    def on_customers_error(self, error_msg):
+        """客户列表加载失败"""
+        self.customer_combo.clear()
+        self.customer_combo.addItem("加载失败")
+        QMessageBox.warning(self, "错误", f"加载客户列表失败: {error_msg}")
+    
+    def on_customer_changed(self, index):
+        """客户选择变化时清空搜索"""
+        self.product_search_input.clear()
+        self.search_results_list.clear()
+        self.selected_product = None
+        self.selected_product_label.setText("未选择产品")
+    
+    def on_search_text_changed(self, text):
+        """搜索文本变化时延迟搜索（防抖）"""
+        self.search_timer.stop()
+        if len(text) >= 2:
+            self.search_timer.start(300)
+        else:
+            self.search_results_list.clear()
+    
+    def perform_search(self):
+        """执行产品搜索"""
+        keyword = self.product_search_input.text().strip()
+        if len(keyword) < 2:
+            return
+        
+        try:
+            response = self.api_client.get(f"/products/search?keyword={keyword}&limit=20")
+            if response and isinstance(response, list):
+                self.search_results = response
+                self.update_search_results_list()
+        except Exception as e:
+            pass
+    
+    def update_search_results_list(self):
+        """更新搜索结果列表"""
+        self.search_results_list.clear()
+        for product in self.search_results:
+            display_text = f"{product.get('oe_number', '')} - {product.get('detail_desc', '')}"
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, product)
+            self.search_results_list.addItem(item)
+    
+    def select_first_result(self):
+        """回车键选择第一个结果"""
+        if self.search_results_list.count() > 0:
+            self.search_results_list.setCurrentRow(0)
+            self.on_result_selected(self.search_results_list.currentItem())
+    
+    def on_result_selected(self, item):
+        """选择搜索结果"""
+        if not item:
+            return
+        
+        product = item.data(Qt.ItemDataRole.UserRole)
+        if not product:
+            return
+        
+        self.selected_product = product
+        self.selected_product_label.setText(
+            f"{product.get('oe_number', '')} - {product.get('detail_desc', '')}"
+        )
+        self.selected_product_label.setStyleSheet("color: #10b981; font-weight: bold;")
+        
+        self.oe_number_input.setText(product.get('oe_number', ''))
+        self.product_desc_input.setText(product.get('detail_desc', ''))
+        
+        if product.get('unit_price'):
+            self.unit_price_spin.setValue(float(product.get('unit_price')))
+        elif product.get('price_usd'):
+            self.unit_price_spin.setValue(float(product.get('price_usd')))
+    
+    def calculate_amount(self):
+        """计算合计金额"""
+        quantity = self.quantity_spin.value()
+        unit_price = self.unit_price_spin.value()
+        amount = quantity * unit_price
+        self.amount_label.setText(f"$ {amount:.2f}")
+    
+    def save_order(self):
+        """保存订单 / 补充单条产品"""
+        if self.customer_combo.currentIndex() < 0:
+            QMessageBox.warning(self, "提示", "请选择客户")
+            return
+
+        customer_id = self.customer_combo.currentData()
+        product_id = self.selected_product.get('id') if self.selected_product else None
+
+        product_data = {
+            'customer_id': customer_id,
+            'product_id': product_id,
+            'customer_code': self.customer_code_input.text(),
+            'oe_number': self.oe_number_input.text(),
+            'detail_desc': self.product_desc_input.text(),
+            'quantity': self.quantity_spin.value(),
+            'unit_price': float(self.unit_price_spin.value()),
+            'delivery_date': self.delivery_date_edit.date().toString("yyyy-MM-dd"),
+            'remark': self.remark_input.text()
+        }
+
+        # 2026-06-11 补充模式：捕获产品数据后直接 accept，由调用方写入预览
+        if self._mode == 'supplement':
+            self._captured_product_data = product_data
+            self.accept()
+            return
+
+        try:
+            response = self.api_client.post("/orders/single", data=product_data)
+            if response and response.get('success'):
+                QMessageBox.information(self, "成功", f"订单创建成功！\nPI号: {response.get('pi_no', '')}")
+                self.accept()
+            else:
+                QMessageBox.warning(self, "错误", response.get('error', '创建失败') if response else '创建失败')
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"创建订单失败: {str(e)}")

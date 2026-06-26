@@ -1,0 +1,117 @@
+template_sheet: "国内采购合同"
+output_sheet: "国内采购合同"
+
+fields:
+  # ===== 合同头部 =====
+  # 甲方（买方）
+  - cell: A1
+    type: static
+    value: "杭州维那贸易有限公司"
+
+  - cell: A2
+    type: static
+    value: "HANGZHOU WEINA TRADE CO.,LTD"
+
+  - cell: A3
+    type: static
+    value: "地址：杭州市临平区三曹路68号福邦星座大厦901-903室"
+
+  - cell: A4
+    type: data
+    path: supplier.name
+    label: "乙方（卖方）名称"
+
+  - cell: A5
+    type: data
+    path: supplier.address
+    label: "乙方（卖方）地址"
+
+  # 合同编号 + 日期
+  - cell: D3
+    type: static
+    value: "合同编号："
+
+  - cell: E3
+    type: data
+    path: po.po_no
+    label: "采购单号"
+
+  - cell: D4
+    type: static
+    value: "签订日期："
+
+  - cell: E4
+    type: data
+    path: po.contract_date
+    label: "合同日期"
+
+  # 产品明细表头（静态，模板已有）
+  # 产品明细循环：从第8行开始
+  - cell: A8
+    type: loop
+    data_path: items
+    template_row:
+      A: item.product_name_snapshot
+      B: item.customer_model_snapshot
+      C: item.color
+      D: item.quantity
+      E: item.unit_price
+      F:
+        type: calc
+        formula: "item.quantity * item.unit_price"
+      G: item.factory_code
+      H: item.detail_requirement
+
+  # 合计行
+  - cell: A30
+    type: static
+    value: "合计"
+
+  - cell: D30
+    type: sum
+    data_path: items
+    field: quantity
+
+  - cell: F30
+    type: sum
+    data_path: items
+    field: total_price
+
+  # 总金额大写
+  - cell: F31
+    type: data
+    path: po.total_amount
+    label: "总金额"
+
+  # 付款条款
+  - cell: A33
+    type: static
+    value: "付款方式：预付30%，余款发货前付清"
+
+  - cell: A34
+    type: static
+    value: "交货期：订单确认后15个工作日内"
+
+  # 签章区域
+  - cell: A31
+    type: static
+    value: "联系人:"
+  - cell: B31
+    type: data
+    path: user.name
+    default: ""
+  - cell: A32
+    type: static
+    value: "电话："
+  - cell: B32
+    type: data
+    path: user.phone
+    default: ""
+
+  - cell: A38
+    type: static
+    value: "甲方签章："
+
+  - cell: F38
+    type: static
+    value: "乙方签章："

@@ -1,0 +1,102 @@
+template_sheet: "PL"
+output_sheet: "PL"
+
+fields:
+  # 公司抬头
+  - cell: A1
+    type: static
+    value: "杭州维那贸易有限公司"
+  - cell: A2
+    type: static
+    value: "HANGZHOU WEINA TRADE CO.,LTD"
+  - cell: A3
+    type: static
+    value: "Office No.901-903 Fubang Xingzuo Building,No.68 Sancao Road, Hangzhou City,Zhejiang China,ZIP CODE 311100"
+  - cell: A4
+    type: static
+    value: "PACKING LIST"
+
+  # TO + S/C NO（H5 不同于 CI 的 G5）
+  - cell: A5
+    type: static
+    value: "TO:"
+  - cell: B5
+    type: data
+    path: customer.full_address
+  - cell: F5
+    type: static
+    value: "S/C NO:"
+  - cell: H5
+    type: data
+    path: pi.sc_no
+
+  - cell: F6
+    type: static
+    value: "Loading date:"
+  - cell: H6
+    type: data
+    path: pi.loading_date
+
+  # From / To（G/H 不同于 CI 的 F/G）
+  - cell: A8
+    type: static
+    value: "From"
+  - cell: B8
+    type: static
+    value: "SHANGHAI CHINA "
+  - cell: G8
+    type: static
+    value: "To"
+  - cell: H8
+    type: data
+    path: pi.destination
+
+  - cell: A9
+    type: static
+    value: "Letter Of Credit No."
+  - cell: C9
+    type: static
+    value: "TT"
+  - cell: G9
+    type: static
+    value: "FOB"
+  - cell: H9
+    type: static
+    value: "SHANGHAI"
+
+  # 产品明细循环：A12 起（PL 的 A 列 marks 由源模板合并单元格保留）
+  - cell: A12
+    type: static
+    value: "N/M"
+  - cell: B12
+    type: loop
+    data_path: items
+    template_row:
+      B: item.pi_no
+      C: item.product
+      D: item.pkgs_ctns
+      E: item.ttl_qty_pcs
+      F: item.gw_kgs
+      G: item.nw_kgs
+      H: item.meas_cbm
+
+  # Total 行
+  - cell: C26
+    type: static
+    value: "Total"
+  - cell: D26
+    type: sum
+    data_path: items
+    field: pkgs_ctns
+  - cell: E26
+    type: sum
+    data_path: items
+    field: ttl_qty_pcs
+  - cell: F26
+    type: sum
+    data_path: items
+    field: gw_kgs
+  - cell: G26
+    type: sum
+    data_path: items
+    field: nw_kgs

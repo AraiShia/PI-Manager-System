@@ -1,0 +1,121 @@
+template_sheet: "CI"
+output_sheet: "CI"
+
+fields:
+  # 公司抬头
+  - cell: A1
+    type: static
+    value: "杭州维那贸易有限公司"
+  - cell: A2
+    type: static
+    value: "HANGZHOU WEINA TRADE CO.,LTD"
+  - cell: A3
+    type: static
+    value: "Office No.901-903 Fubang Xingzuo Building,No.68 Sancao Road, Hangzhou City,Zhejiang China,ZIP CODE 311100"
+  - cell: A4
+    type: static
+    value: "COMMERCIAL INVOICE"
+
+  # TO + S/C NO
+  - cell: A5
+    type: static
+    value: "TO:"
+  - cell: B5
+    type: data
+    path: customer.full_address
+  - cell: F5
+    type: static
+    value: "S/C NO:"
+  - cell: G5
+    type: data
+    path: pi.sc_no
+
+  - cell: F6
+    type: static
+    value: "Loading date:"
+  - cell: G6
+    type: data
+    path: pi.loading_date
+
+  # From / To
+  - cell: A8
+    type: static
+    value: "From"
+  - cell: B8
+    type: static
+    value: "SHANGHAI CHINA "
+  - cell: F8
+    type: static
+    value: "To"
+  - cell: G8
+    type: data
+    path: pi.destination
+
+  - cell: A9
+    type: static
+    value: "Letter Of Credit No."
+  - cell: C9
+    type: static
+    value: "TT"
+  - cell: F9
+    type: static
+    value: "FOB"
+  - cell: G9
+    type: static
+    value: "SHANGHAI"
+
+  # 产品明细循环：B12 起（CI 的 A 列保留为 marks 占位）
+  - cell: B12
+    type: loop
+    data_path: items
+    template_row:
+      B: item.pi_no
+      C: item.description
+      D: item.color
+      E: item.quantity
+      F: item.unit_price
+      G:
+        type: calc
+        formula: "item.quantity * item.unit_price"
+
+  # Total 行（E26/G26 是公式；我们写入静态 sum 值即可）
+  - cell: C26
+    type: static
+    value: "Total"
+  - cell: E26
+    type: sum
+    data_path: items
+    field: quantity
+  - cell: G26
+    type: sum
+    data_path: items
+    field: total_price
+
+  # 订单金额 / 押金 / 折扣 / 余款
+  - cell: A27
+    type: static
+    value: "Actually loaded"
+  - cell: E27
+    type: static
+    value: "Order Amount"
+  - cell: G27
+    type: data
+    path: pi.order_amount
+  - cell: E28
+    type: static
+    value: "DEPOSIT APPLIED"
+  - cell: G28
+    type: data
+    path: pi.deposit_applied
+  - cell: E29
+    type: static
+    value: "Discount"
+  - cell: G29
+    type: data
+    path: pi.discount
+  - cell: E30
+    type: static
+    value: "Balance PAYMENT"
+  - cell: G30
+    type: data
+    path: pi.balance_payment

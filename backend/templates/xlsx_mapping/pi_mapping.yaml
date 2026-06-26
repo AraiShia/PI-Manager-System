@@ -1,0 +1,201 @@
+template_sheet: "PI模板"
+output_sheet: "PI模板"
+
+fields:
+  # ===== 公司抬头 =====
+  - cell: A1
+    type: static
+    value: "HANGZHOU WEINA TRADE CO., LTD."
+
+  # PI.NO + Order Date
+  - cell: A2
+    type: format
+    template: "PI.NO.: {pi_no}     Order Date:{order_date}"
+    sources:
+      pi_no: pi.pi_no
+      order_date: pi.order_date
+
+  # 标题
+  - cell: A3
+    type: static
+    value: "PROFORMA INVOICE"
+
+  # ===== 买方信息块（A5-A9）=====
+  - cell: A5
+    type: static
+    value: "BUYER(买方信息）"
+  - cell: A6
+    type: static
+    value: "TO:"
+  - cell: B6
+    type: data
+    path: customer.customer_name
+  - cell: A7
+    type: static
+    value: "Tel："
+  - cell: B7
+    type: data
+    path: customer.phone
+  - cell: A8
+    type: static
+    value: "ADDRESS:"
+  - cell: B8
+    type: data
+    path: customer.address
+  - cell: A9
+    type: static
+    value: "Final \nDestination："
+  - cell: B9
+    type: data
+    path: customer.country
+
+  # ===== 卖方信息块（F5-K9）=====
+  - cell: F5
+    type: static
+    value: "SELLER:（卖方信息） "
+  - cell: F6
+    type: static
+    value: "Contact："
+  - cell: G6
+    type: data
+    path: user.name
+  - cell: K6
+    type: static
+    value: "系统用户 \n，业务员名字"
+  - cell: F7
+    type: static
+    value: "Tel/WhatsApp："
+  - cell: G7
+    type: data
+    path: company.phone
+  - cell: K7
+    type: data
+    path: user.phone
+    default: ""
+  - cell: F8
+    type: static
+    value: "ADDRESS:"
+  - cell: G8
+    type: data
+    path: company.address
+  - cell: F9
+    type: static
+    value: "Delivery date:"
+  - cell: G9
+    type: data
+    path: pi.delivery_date
+    default: "30 days after the deposit is paid"
+
+  # ===== 产品明细表头（A11-J11）=====
+  # 表头已存在，无需写入
+
+  # ===== 产品明细循环（A12-A22，最多11行）=====
+  - cell: A12
+    type: loop
+    data_path: items
+    max_rows: 11
+    template_row:
+      A: item.product_name          # NAME
+      B: item.product_code          # CODE
+      C: item.photo                 # PHOTO (产品图片)
+      D: item.detail_desc           # Description
+      E: item.specification         # Specification
+      F: item.pcs_per_carton        # pcs/ctn
+      G: item.color                 # Color
+      H: item.quantity              # QTY
+      I: item.unit_price            # PRICE FOB
+      J:
+        type: calc
+        formula: "item.quantity * item.unit_price"  # Amount
+
+  # ===== TOTAL 行（A23）=====
+  - cell: A23
+    type: static
+    value: "TOTAL:"
+  - cell: H23
+    type: sum
+    data_path: items
+    field: quantity
+  - cell: I23
+    type: sum
+    data_path: items
+    field: total_price
+
+  # ===== SAY TOTAL 行（A24）=====
+  - cell: A24
+    type: format
+    template: "SAY TOTAL: {say_total}"
+    sources:
+      say_total: pi.say_total
+
+  # ===== Remark 区域（A25-A26）=====
+  - cell: A25
+    type: static
+    value: "Remark："
+  - cell: A26
+    type: data
+    path: pi.remark
+    default: ""
+
+  # ===== 银行信息（E25-F31）=====
+  - cell: E25
+    type: static
+    value: "BANK INFORMATION:"
+  - cell: E26
+    type: static
+    value: "Beneficiary:"
+  - cell: F26
+    type: static
+    value: "HANGZHOU WEINA TRADE CO.,LTD"
+  - cell: E27
+    type: static
+    value: "BANK NAME: "
+  - cell: F27
+    type: static
+    value: " ZHEJIANG TAILONG COMMERCIAL BANK CO.,LTD"
+  - cell: E28
+    type: static
+    value: "BANK ADDRESS:"
+  - cell: F28
+    type: static
+    value: "LUQIAO TAIZHOU ZHEJIANG CHINA"
+  - cell: E29
+    type: static
+    value: "SWIFT  BIC:"
+  - cell: F29
+    type: static
+    value: "ZJTLCNBH"
+  - cell: E30
+    type: static
+    value: "Tel&Fax:"
+  - cell: F30
+    type: static
+    value: "Tel:+86-571-89178855 "
+  - cell: E31
+    type: static
+    value: "Account No: "
+  - cell: F31
+    type: static
+    value: "NRA33020020201000027051"
+
+  # ===== 条款（A27-A30）=====
+  - cell: A27
+    type: format
+    template: "1.Price Terms:{price_terms}"
+    sources:
+      price_terms: pi.price_terms
+  - cell: A28
+    type: format
+    template: "2.Payment Terms: {payment_terms}"
+    sources:
+      payment_terms: pi.payment_terms
+  - cell: A29
+    type: static
+    value: "3. SHIPPING MARKS ARE BUYER'S OPTION"
+  - cell: A30
+    type: format
+    template: "Warranty Time: {warranty_time}"
+    sources:
+      warranty_time: pi.warranty_time
+
+  # ===== 签名区域（A33-G34）- 已在模板中，无需写入 =====
