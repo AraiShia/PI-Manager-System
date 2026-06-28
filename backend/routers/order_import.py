@@ -480,41 +480,50 @@ def _auto_match_entities(data: dict, product_matcher: ProductMatcher, customer_i
     logger.info(f"[导入匹配] 开始匹配 - model_code={model_code}, customer_id={customer_id}")
     logger.info(f"[导入匹配] 原始数据: {data}")
     
-    if not model_code or not customer_id:
-        logger.warning(f"[导入匹配] 跳过 - model_code={model_code}, customer_id={customer_id}")
+    if not customer_id:
+        logger.warning(f"[导入匹配] 跳过 - customer_id={customer_id}")
         return
     
     db = product_matcher.db
 
-    logger.info(f"[导入匹配] 查询 PrdCustomerProduct - customer_id={customer_id}, model_code='{model_code}'")
+    # 2026-06-29: 有 Model 时才尝试匹配已有产品，无 Model 时直接创建临时产品
+    if model_code:
+        logger.info(f"[导入匹配] 查询 PrdCustomerProduct - customer_id={customer_id}, model_code='{model_code}'")
 
-    # Phase 5: 直接查 prd_customer_product（customer_id + customer_model 唯一）
-    from models.customer_product import PrdCustomerProduct
-    match = db.query(PrdCustomerProduct).filter(
-        PrdCustomerProduct.customer_id == customer_id,
-        PrdCustomerProduct.customer_model == model_code
-    ).first()
+        # Phase 5: 直接查 prd_customer_product（customer_id + customer_model 唯一）
+        from models.customer_product import PrdCustomerProduct
+        match = db.query(PrdCustomerProduct).filter(
+            PrdCustomerProduct.customer_id == customer_id,
+            PrdCustomerProduct.customer_model == model_code
+        ).first()
 
-    if match:
-        logger.info(f"[导入匹配] 匹配成功 - product_id={match.id}")
-        data['product_id'] = match.id
-        return
+        if match:
+            logger.info(f"[导入匹配] 匹配成功 - product_id={match.id}")
+            data['product_id'] = match.id
+            return
 
-    logger.warning(f"[导入匹配] 未找到匹配，开始创建临时产品 - model_code='{model_code}'")
+        logger.warning(f"[导入匹配] 未找到匹配，开始创建临时产品 - model_code='{model_code}'")
+    else:
+        logger.warning(f"[导入匹配] 无 Model，直接创建临时产品")
 
-    # 2026-06-26: 自动生成临时产品编号：TP260626XX格式（10位）
+    # 2026-06-29: 优先使用导入的 Model 作为客户型号，无 Model 时自动生成 TP + 日期 + 随机字符
     import random
     import string
-    date_str = datetime.now().strftime("%y%m%d")
-    random_chars = ''.join(random.choices(string.ascii_uppercase + string.digits, k=2))
-    temp_code = f"TP{date_str}{random_chars}"
+    if model_code:
+        temp_code = model_code
+    else:
+        date_str = datetime.now().strftime("%y%m%d")
+        random_chars = ''.join(random.choices(string.ascii_uppercase + string.digits, k=2))
+        temp_code = f"TP{date_str}{random_chars}"
 
     # Phase 5: 创建 PrdCustomerProduct 临时产品（is_temporary=1）
     # 2026-06-23 修复：统一 product_name 和 detail_desc，避免产品管理列表与订单详情表显示不一致
+    # 2026-06-29: customer_model = customer_product_code = temp_code
     temp_name = f"临时产品-{temp_code}"
     temp_product = PrdCustomerProduct(
         customer_id=customer_id,
         customer_model=temp_code,
+        customer_product_code=temp_code,
         detail_desc=temp_name,
         product_name=temp_name,
         is_temporary=True,
@@ -649,13 +658,15 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
 
         # 创建Item对象
         # 🔧 2026-06-22 升级：所有 41 列字段直接存入 pi_proforma_invoice_item 主表
+        # 2026-06-29 修复：customer_model = customer_code，一般情况下两者相等
+        item_code = item_data.get('customer_code') or item_data.get('customer_model') or model
         item = PiProformaInvoiceItem(
             pi_id=pi.id,
             product_id=prod_id,
             # === A组: 基础信息 (Col 0-9) ===
             oe_number=item_data.get('oe_number'),
-            customer_code=item_data.get('customer_code'),
-            customer_model=item_data.get('customer_model') or model,  # Col 7
+            customer_code=item_code,
+            customer_model=item_code,  # Col 7 - 与 customer_code 保持一致
             product_feature=item_data.get('product_feature'),         # Col 8
             detail_desc=item_data.get('product_desc') or item_data.get('detail_desc'),  # Col 5
             quantity=qty,                                              # Col 9

@@ -732,7 +732,13 @@ class OrderDetailPanel(QWidget):
         setc(1, order.get('pi_no', order.get('order_no', '')))
 
         # ===== Col 2: 客户产品编号 =====
-        product_code = item.get('product_code') or item.get('customer_product_code') or item.get('customer_product_no')
+        product_code = (
+            item.get('customer_model')
+            or item.get('customer_code')
+            or item.get('product_code')
+            or item.get('customer_product_code')
+            or item.get('customer_product_no')
+        )
         if not product_code:
             if is_temp:
                 import json as _json
