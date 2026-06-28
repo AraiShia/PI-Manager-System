@@ -485,13 +485,14 @@ def _auto_match_entities(data: dict, product_matcher: ProductMatcher, customer_i
         return
     
     db = product_matcher.db
+    
+    # Phase 5: 直接查 prd_customer_product（customer_id + customer_model 唯一）
+    from models.customer_product import PrdCustomerProduct
 
     # 2026-06-29: 有 Model 时才尝试匹配已有产品，无 Model 时直接创建临时产品
     if model_code:
         logger.info(f"[导入匹配] 查询 PrdCustomerProduct - customer_id={customer_id}, model_code='{model_code}'")
 
-        # Phase 5: 直接查 prd_customer_product（customer_id + customer_model 唯一）
-        from models.customer_product import PrdCustomerProduct
         match = db.query(PrdCustomerProduct).filter(
             PrdCustomerProduct.customer_id == customer_id,
             PrdCustomerProduct.customer_model == model_code
