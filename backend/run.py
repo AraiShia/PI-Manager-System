@@ -1,10 +1,18 @@
 import uvicorn
 import os
 import sys
+import argparse
 
 def main():
+    parser = argparse.ArgumentParser(description='PI Manager Server')
+    parser.add_argument('--host', type=str, default='0.0.0.0', help='Host address (default: 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=8000, help='Port number (default: 8000)')
+    args = parser.parse_args()
+    
     print("=== PI Manager Starting ===")
     print(f"Python version: {sys.version}")
+    print(f"Host: {args.host}")
+    print(f"Port: {args.port}")
     
     # Handle PyInstaller path
     if hasattr(sys, '_MEIPASS'):
@@ -53,8 +61,8 @@ def main():
     try:
         uvicorn.run(
             app,
-            host="0.0.0.0",
-            port=8000,
+            host=args.host,
+            port=args.port,
             reload=False
         )
     except Exception as e:
