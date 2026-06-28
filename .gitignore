@@ -33,3 +33,5 @@ build/
 # Large files
 *.rar
 *.zip
+client/TESTORDER.xlsx
+image.png
