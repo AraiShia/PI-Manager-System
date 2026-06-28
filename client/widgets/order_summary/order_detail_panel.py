@@ -55,7 +55,6 @@ from .constants import (
     ORDER_DETAIL_COLUMN_WIDTHS,
     ORDER_DETAIL_ROW_HEIGHT,
     TEMPORARY_READONLY_COLUMNS,
-    STATUS_TEXTS,
     COLORS
 )
 
@@ -195,7 +194,8 @@ class OrderDetailPanel(QWidget):
         
         self._status_dots = []
         self._status_labels = []
-        for text in STATUS_TEXTS:
+        default_texts = ["正式", "未采", "有库", "无票"]
+        for text in default_texts:
             dot = QLabel()
             dot.setFixedSize(12, 12)
             dot.setStyleSheet(f"background-color: {COLORS['readonly_fg']}; border-radius: 6px;")
@@ -371,6 +371,7 @@ class OrderDetailPanel(QWidget):
         # 清空选中状态
         self._selected_items.clear()
         self._checkboxes.clear()
+        self._current_row = -1
 
         # 更新标题
         order_no = order.get('pi_no', order.get('order_no', ''))
@@ -998,18 +999,40 @@ class OrderDetailPanel(QWidget):
         text1 = '正式' if not is_temp else '临时'
 
         # 灯2: 采购状态（已采=蓝色，未采=灰色）
-        is_purchased = item.get('purchase_status') == 'purchased'
+        # 判断依据：有采购价格 或 有采购单项ID 或 有供应商名称
+        purchase_price = item.get('purchase_price')
+        po_item_id = item.get('po_item_id')
+        supplier_name = item.get('supplier_name')
+        is_purchased = (
+            (purchase_price is not None and float(purchase_price) > 0)
+            or (po_item_id is not None and po_item_id != '')
+            or (supplier_name is not None and supplier_name != '')
+        )
         color2 = '#3b82f6' if is_purchased else '#6b7280'
         text2 = '已采' if is_purchased else '未采'
 
-        # 灯3: 库存状态（缺货标记=橙色，有库=绿色，缺库=红色）
+        # 灯3: 入库状态（缺货=橙色，已入库=绿色，部分入库=黄色，未入库=灰色）
         order_storage = (self._current_order or {}).get('storage_status', '')
+        item_storage = item.get('storage_status', '')
+        stocked_qty = item.get('stocked_qty', 0) or 0
+        quantity = item.get('quantity', 0) or 0
+        try:
+            stocked_qty_f = float(stocked_qty)
+        except (TypeError, ValueError):
+            stocked_qty_f = 0
+        try:
+            quantity_f = float(quantity)
+        except (TypeError, ValueError):
+            quantity_f = 0
+
         if order_storage == '缺货':
             color3, text3 = '#D97706', '缺货'
+        elif item_storage == '已入库' or (quantity_f > 0 and stocked_qty_f >= quantity_f):
+            color3, text3 = '#22c55e', '已入库'
+        elif item_storage == '部分入库' or (stocked_qty_f > 0 and stocked_qty_f < quantity_f):
+            color3, text3 = '#f59e0b', '部分入库'
         else:
-            has_stock = item.get('inventory_quantity', 0) > 0
-            color3 = '#22c55e' if has_stock else '#ef4444'
-            text3 = '有库' if has_stock else '缺库'
+            color3, text3 = '#6b7280', '未入库'
 
         # 灯4: 发票状态（有票=绿色，无票=灰色）
         invoice_status = item.get('invoice_status', '')
@@ -1026,11 +1049,10 @@ class OrderDetailPanel(QWidget):
             self._status_labels[i].setStyleSheet(f"color: {color}; font-size: 12px;")
 
     def _set_status_dots_gray(self):
+        gray = COLORS['readonly_fg']
+        default_texts = ["正式", "未采", "未入库", "无票"]
         for i, dot in enumerate(self._status_dots):
-            gray = COLORS['readonly_fg']
             dot.setStyleSheet(f"background-color: {gray}; border-radius: 6px;")
-        # [2026-06-17 修复] 兼容 STATUS_TEXTS 6 项: 使用 min 防止 IndexError
-        default_texts = ["正式", "未采", "有库", "无票", "未付", "已锁"]
         for i, label in enumerate(self._status_labels):
             label.setText(default_texts[i] if i < len(default_texts) else "")
             label.setStyleSheet(f"color: {gray}; font-size: 12px;")
@@ -1082,7 +1104,7 @@ class OrderDetailPanel(QWidget):
             self._current_row -= 1
 
         # 7. 状态灯
-        if self._selected_items and self._current_items:
+        if self._current_row >= 0 and self._current_items:
             self._update_status_indicator(self._current_items)
         else:
             self._set_status_dots_gray()
@@ -1098,16 +1120,13 @@ class OrderDetailPanel(QWidget):
         self.remove_item(item_id)
 
     def _on_detail_table_clicked(self, row, col):
-        """详情表点击事件 - 仅记录行号，状态灯由复选框驱动"""
-        # 点击空白区域 → 重置
+        """详情表点击事件 - 更新当前行和状态灯"""
         if row < 0 or (self._current_items and row >= len(self._current_items)):
             self._current_row = -1
             self._set_status_dots_gray()
             return
-        # 记录当前行，但仅在有勾选项时才更新灯
         self._current_row = row
-        if self._selected_items:
-            self._update_status_indicator(self._current_items)
+        self._update_status_indicator(self._current_items)
     
     @staticmethod
     def format_currency_display(amount, currency='USD'):
