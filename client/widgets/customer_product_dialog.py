@@ -489,12 +489,25 @@ class CustomerProductDialog(QDialog):
         for c in self.customers:
             self.customer_combo.addItem(c.get('customer_name', ''), c.get('id'))
         
+        # 🔧 2026-06-29 修复"转正经常丢失客户"问题
+        # 原 bug：无论是否找到匹配项，confirm_temp 模式都执行 setEnabled(False) 锁定下拉框。
+        # 当 customers 加载失败/为空，或 preset_customer_id 不在 customers 列表中时，
+        # combo 会停留在 "-- 请选择客户 --"（data=None）但被禁用，用户被误导以为已选好，
+        # 提交时 save() 抛"请选择客户"警告，或更糟——后端收到 customer_id=None 导致产品
+        # 关联到错误/无客户的 PrdCustomerProduct。
+        # 修复：找到才锁定；找不到则保持可编辑，让用户手动选择。
         if self.mode == "confirm_temp" and self._preset_customer_id:
+            found = False
             for i in range(self.customer_combo.count()):
                 if self.customer_combo.itemData(i) == self._preset_customer_id:
                     self.customer_combo.setCurrentIndex(i)
+                    found = True
                     break
-            self.customer_combo.setEnabled(False)
+            if found:
+                self.customer_combo.setEnabled(False)
+            else:
+                # 未找到匹配：保持可编辑，提示用户重新选择
+                print(f"[WARN] 转正时客户ID={self._preset_customer_id} 不在客户列表中，需用户手动选择")
         elif self._preset_customer_id:
             for i in range(self.customer_combo.count()):
                 if self.customer_combo.itemData(i) == self._preset_customer_id:
