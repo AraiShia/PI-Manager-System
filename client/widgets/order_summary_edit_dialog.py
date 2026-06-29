@@ -311,14 +311,35 @@ class OrderSummaryEditDialog(QDialog):
         self.boxes_count_spin = QSpinBox()
         self.boxes_count_spin.setRange(1, 9999)
         self.boxes_count_spin.setSuffix(" 箱")
-        # 回填箱数（优先级：boxes_count > carton_count > box_count）
-        boxes_value = (
-            self.order_data.get('boxes_count') or
-            self.order_data.get('carton_count') or
-            self.order_data.get('box_count') or
-            1
-        )
-        self.boxes_count_spin.setValue(int(boxes_value or 1))
+        # 2026-06-26 修复：在 "1件多箱" 模式下，正确的回填值是 "每件箱数"（boxes_count / boxes_per_piece），
+        # 而不是 "总箱数"（carton_count）。后端 _build_item_detail_v11 已分别返回两个字段：
+        #   detail["boxes_count"]   = 每件箱数（boxes_per_piece）
+        #   detail["carton_count"]  = "1件多箱"模式=总箱数，其它模式=箱数
+        # 之前回填逻辑直接 fallback 到 carton_count，导致 spinbox 显示总箱数（如 600），
+        # 看起来像"件数回填了箱数"。
+        #
+        # 优先级策略：
+        #   1. boxes_count（每件箱数，最准确，最新写入）
+        #   2. box_count（兼容历史字段名）
+        #   3. 由 total_boxes / quantity 反推（处理 schema 未返回 boxes_count 的旧数据）
+        #   4. 默认 1
+        boxes_value = self.order_data.get('boxes_count')
+        if not boxes_value:
+            boxes_value = self.order_data.get('box_count')
+        if not boxes_value:
+            # 反推：boxes_per_piece = carton_count(total) / quantity
+            try:
+                total_boxes = int(self.order_data.get('carton_count') or 0)
+                qty = int(self.order_data.get('quantity') or 0)
+                if total_boxes > 0 and qty > 0:
+                    derived = round(total_boxes / qty)
+                    if derived >= 1:
+                        boxes_value = derived
+            except (TypeError, ValueError):
+                pass
+        if not boxes_value:
+            boxes_value = 1
+        self.boxes_count_spin.setValue(int(boxes_value))
         self.boxes_count_spin.setVisible(False)
         units_layout.addWidget(self.boxes_count_spin)
 

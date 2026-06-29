@@ -61,7 +61,12 @@ class PIInvoiceItemDetailResponse(BaseModel):
     factory_no: Optional[str] = None                   # 列32: 工厂编号
     carton_size: Optional[str] = None                  # 列33: 纸箱尺寸
     packing_spec: Optional[str] = None                 # 列34: 打包规格
-    carton_count: Optional[int] = None                 # 列35: 箱数
+    carton_count: Optional[int] = None                 # 列35: 箱数（"1件多箱"模式下=总箱数）
+    # 🔧 2026-06-26 修复：后端 _build_item_detail_v11 会在 "1件多箱" 模式下写入
+    # boxes_count=每件箱数（boxes_per_piece），但 schema 之前未声明该字段，
+    # Pydantic 默认会丢弃未知字段，导致前端编辑对话框回填时拿到 None，
+    # 进而 fallback 到 carton_count（=总箱数），把"件数设置"误填成总箱数
+    boxes_count: Optional[int] = None                  # 列35: 箱数（"1件多箱"模式下=每件箱数）
     estimated_volume: Optional[float] = None           # 列36: 预估体积
     carton_gross_weight: Optional[float] = None        # 列37: 整箱毛重
     total_weight: Optional[float] = None               # 列38: 总重量
