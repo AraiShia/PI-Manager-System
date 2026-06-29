@@ -1,0 +1,144 @@
+name: Build Client Release
+
+on:
+  push:
+    tags:
+      - 'client/v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (如 1.0.0)'
+        required: true
+        default: '1.0.0'
+      release_note:
+        description: '更新说明'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-client:
+    name: Build Client
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+      
+      - name: Get version
+        id: get_version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like "refs/tags/client/v*") {
+            $version = $env:GITHUB_REF -replace 'refs/tags/client/v', ''
+          } elseif ($env:INPUT_VERSION) {
+            $version = $env:INPUT_VERSION
+          } else {
+            $version = "1.0.0"
+          }
+          Write-Output "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Output "Version: $version"
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+      
+      - name: Update version files
+        shell: pwsh
+        run: |
+          $version = "${{ needs.build-client.outputs.version }}"
+          $buildDate = Get-Date -Format "yyyy-MM-dd"
+          
+          # 更新客户端 config.py
+          $configPath = "client/config.py"
+          $content = Get-Content $configPath -Raw -Encoding utf8
+          $content = $content -replace 'APP_VERSION\s*=\s*"v?[\d.]+"', "APP_VERSION = `"v$version`""
+          Set-Content -Path $configPath -Value $content -Encoding utf8
+          
+          # 更新客户端 version.json
+          if (Test-Path "client/version.json") {
+            $clientVer = Get-Content "client/version.json" -Raw -Encoding utf8 | ConvertFrom-Json
+            $clientVer.version = $version
+            $clientVer.build_date = $buildDate
+            $clientVer | ConvertTo-Json -Depth 10 | Set-Content "client/version.json" -Encoding utf8
+          }
+          
+          Write-Output "Version updated to $version"
+      
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          cd client
+          pip install -r requirements.txt
+      
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          cd client
+          pyinstaller client.spec --clean --noconfirm
+      
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $version = "${{ needs.build-client.outputs.version }}"
+          $srcDir = "client/dist/PI_Manager_Client_v2"
+          $zipName = "PI-Manager-Client-v$version-win-x64.zip"
+          
+          Compress-Archive -Path $srcDir -DestinationPath $zipName -Force
+          
+          $hash = Get-FileHash -Path $zipName -Algorithm SHA256
+          $hash.Hash | Out-File -FilePath "$zipName.sha256" -Encoding ascii
+          
+          Write-Output "Created: $zipName"
+          Write-Output "SHA256: $($hash.Hash)"
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-build
+          path: |
+            *.zip
+            *.sha256
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "client/v${{ needs.build-client.outputs.version }}"
+          tag_name: "client/v${{ needs.build-client.outputs.version }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            PI-Manager-Client-v${{ needs.build-client.outputs.version }}-win-x64.zip
+            PI-Manager-Client-v${{ needs.build-client.outputs.version }}-win-x64.zip.sha256
+      
+      - name: Publish to Update Service
+        if: env.UPDATE_SERVICE_URL != ''
+        env:
+          UPDATE_SERVICE_URL: ${{ secrets.UPDATE_SERVICE_URL }}
+          UPDATE_SERVICE_TOKEN: ${{ secrets.UPDATE_SERVICE_TOKEN }}
+        run: |
+          TAG="client/v${{ steps.get_version.outputs.version }}"
+          RELEASE_NOTE="${{ github.event.inputs.release_note || '新版本发布' }}"
+          
+          echo "Publishing client version $TAG to update service..."
+          
+          curl -s -X POST "$UPDATE_SERVICE_URL/api/admin/release" \
+            -H "X-Admin-Token: $UPDATE_SERVICE_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "tag": "'"$TAG"'",
+              "component": "client",
+              "changelog": "'"$RELEASE_NOTE"'",
+              "force_update": false
+            }'
+          echo ""
+          echo "Publish complete."
