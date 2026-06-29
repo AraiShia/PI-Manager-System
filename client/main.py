@@ -10266,6 +10266,11 @@ def check_for_updates():
             latest_raw = data.get("latest", current_version)
             latest_version = _strip_version_prefix(latest_raw)
 
+            # 🔧 2026-06-29 修复：如果最新版本等于当前版本，强制 has_update=False
+            # 防止后端比较逻辑错误导致误报更新
+            if _compare_versions(latest_version, current_version) <= 0:
+                has_update = False
+
             # A4 修复：检查最低兼容版本
             min_compatible = data.get("min_compatible", "") or ""
             is_blocked = False
