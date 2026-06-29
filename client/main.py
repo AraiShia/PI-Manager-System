@@ -1668,7 +1668,11 @@ class MainWindow(QMainWindow):
         return True
     
     def load_globals(self):
-        """加载全局变量（使用本地配置，无网络延迟）"""
+        """加载全局变量（使用本地配置，无网络延迟）
+        
+        🔧 2026-06-29 优化：同步预加载客户列表缓存，解决转正 Dialog 打开时
+        客户列表未加载导致下拉为空的问题。
+        """
         try:
             from config.local_settings_manager import load_local_settings
             settings = load_local_settings()
@@ -1679,6 +1683,17 @@ class MainWindow(QMainWindow):
             print(f"[WARN] 加载全局变量失败，使用默认值: {e}")
             self.default_profit_margin = 25.0
             self.exchange_rate = 7.24
+
+        # 🔧 2026-06-29 同步预加载客户列表缓存
+        # 确保任何时候打开转正 Dialog 都有缓存可用，避免 combo 为空
+        try:
+            from api.cached_client import CachedApiClient
+            if isinstance(self.api_client, CachedApiClient):
+                # 触发缓存预加载（会立即返回缓存或发起 API 请求）
+                self.api_client.get_customers()
+                print(f"[INFO] 客户列表缓存预加载完成")
+        except Exception as e:
+            print(f"[WARN] 客户列表预加载失败: {e}")
     
     def calculate_estimated_usd_price(self, factory_rmb_price):
         """计算预估美金报价

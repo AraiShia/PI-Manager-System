@@ -490,12 +490,8 @@ class CustomerProductDialog(QDialog):
             self.customer_combo.addItem(c.get('customer_name', ''), c.get('id'))
         
         # 🔧 2026-06-29 修复"转正经常丢失客户"问题
-        # 原 bug：无论是否找到匹配项，confirm_temp 模式都执行 setEnabled(False) 锁定下拉框。
-        # 当 customers 加载失败/为空，或 preset_customer_id 不在 customers 列表中时，
-        # combo 会停留在 "-- 请选择客户 --"（data=None）但被禁用，用户被误导以为已选好，
-        # 提交时 save() 抛"请选择客户"警告，或更糟——后端收到 customer_id=None 导致产品
-        # 关联到错误/无客户的 PrdCustomerProduct。
-        # 修复：找到才锁定；找不到则保持可编辑，让用户手动选择。
+        # 保持锁定防止误操作，但标记客户查找状态，save() 时检查并弹出警告
+        self._customer_lookup_failed = False  # 初始化标记
         if self.mode == "confirm_temp" and self._preset_customer_id:
             found = False
             for i in range(self.customer_combo.count()):
@@ -503,11 +499,10 @@ class CustomerProductDialog(QDialog):
                     self.customer_combo.setCurrentIndex(i)
                     found = True
                     break
-            if found:
-                self.customer_combo.setEnabled(False)
-            else:
-                # 未找到匹配：保持可编辑，提示用户重新选择
-                print(f"[WARN] 转正时客户ID={self._preset_customer_id} 不在客户列表中，需用户手动选择")
+            self.customer_combo.setEnabled(False)  # 锁定防止误操作
+            if not found:
+                self._customer_lookup_failed = True  # 标记查找失败，save() 时弹警告
+                print(f"[WARN] 转正时客户ID={self._preset_customer_id} 不在客户列表中（客户列表共 {len(self.customers)} 个），将阻止提交")
         elif self._preset_customer_id:
             for i in range(self.customer_combo.count()):
                 if self.customer_combo.itemData(i) == self._preset_customer_id:
@@ -1047,6 +1042,20 @@ class CustomerProductDialog(QDialog):
         return {}
 
     def save(self):
+        # 🔧 2026-06-29 修复"转正经常丢失客户"问题
+        # 如果客户列表为空/找不到匹配客户，阻止提交并提示用户
+        if getattr(self, '_customer_lookup_failed', False):
+            QMessageBox.critical(
+                self,
+                "客户列表加载异常",
+                f"无法找到订单对应的客户（客户ID={self._preset_customer_id}）\n\n"
+                f"可能原因：\n"
+                f"1. 客户列表正在加载中，请稍后再试\n"
+                f"2. 服务器连接异常\n\n"
+                f"请关闭此窗口，等待客户列表加载完成后重试。"
+            )
+            return
+
         customer_id = self.customer_combo.currentData()
         if not customer_id:
             QMessageBox.warning(self, "警告", "请选择客户")
