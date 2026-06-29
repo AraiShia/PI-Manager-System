@@ -588,10 +588,19 @@ class CustomerProductDialog(QDialog):
         self.model_input.setPlaceholderText("默认等于主OE号")
         if self.mode == "confirm_temp":
             temp_data = self._parse_temp_data()
-            model_val = temp_data.get('model') or self.product.get('customer_code') or ''
+            original_model = temp_data.get('model') or ''
+            model_val = original_model or self.product.get('customer_code') or ''
             self.model_input.setText(model_val)
-            self.model_input.setReadOnly(True)  # 锁定：从Excel导入的Model不可编辑
-            self.model_input.setStyleSheet("background-color: #f0f0f0; color: #666666;")  # 灰色样式提示
+            # 🔧 2026-06-29 修改：只有当 Excel 原本缺失 Model 时才允许编辑
+            # - temp_data.model 有值 → Excel 原本有 Model，锁定只读
+            # - temp_data.model 为空 → Excel 原本无 Model，自动生成 TP 编号，允许编辑
+            if original_model:
+                self.model_input.setReadOnly(True)  # 有原始 Model → 锁定
+                self.model_input.setStyleSheet("background-color: #f0f0f0; color: #666666;")
+            else:
+                self.model_input.setReadOnly(False)  # 无原始 Model → 允许编辑
+                self.model_input.setStyleSheet("")
+                self.model_input.setPlaceholderText("请输入客户产品编号")
         elif self.is_edit:
             self.model_input.setText(self.product.get('customer_model', ''))
         basic_layout.addRow("客户型号:", self.model_input)
