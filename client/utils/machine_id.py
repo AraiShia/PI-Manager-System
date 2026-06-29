@@ -73,4 +73,6 @@ def resolve_department(machine_code: str | None = None) -> str:
     from config import Config
 
     code = machine_code or get_machine_code()
-    return Config.MACHINE_DEPT_MAP.get(code, "S")
+    # 2026-06-29 修复：兜底处理，防止打包后 Config 缺少 MACHINE_DEPT_MAP 时崩溃
+    mapping = getattr(Config, "MACHINE_DEPT_MAP", {}) or {}
+    return mapping.get(code, "S")

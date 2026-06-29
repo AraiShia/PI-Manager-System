@@ -28,6 +28,12 @@ else:
     # 如果不存在，创建一个默认的 Config 类
     class Config:
         API_BASE_URL = "http://localhost:8000"
+        APP_VERSION = "v1.0.0"
+        UPDATE_SERVER_URL = "https://updateservice.wakabashia.tj.cn"
+        AUTO_CHECK_UPDATE = True
+        # 2026-06-29 修复：兜底 Config 缺少 MACHINE_DEPT_MAP，
+        # 防止打包后 utils.machine_id 调用 Config.MACHINE_DEPT_MAP 时崩溃
+        MACHINE_DEPT_MAP = {}
         DEPARTMENT_DB_CONFIG = {}
         DB_HOST = "localhost"
         DB_PORT = 3306
