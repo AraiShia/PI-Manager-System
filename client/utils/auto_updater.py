@@ -1,13 +1,16 @@
 """
 自动更新检查模块
-检查 GitHub Releases 上的最新版本
+对接 https://updateservice.wakabashia.tj.cn API
+与 main.py 中的 check_for_updates() 逻辑保持一致
+
+🔧 2026-06-29 重写：原实现调用 GitHub API，不符合更新服务 API 规范
 """
 
 import os
 import sys
 import json
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from PySide6.QtCore import QThread, Signal
 
 
@@ -23,40 +26,73 @@ def get_current_version() -> str:
     version_file = os.path.join(get_app_dir(), "version.json")
     if not os.path.exists(version_file):
         version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "version.json")
-    
+
     if os.path.exists(version_file):
         try:
             with open(version_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 return data.get('version', '1.0.0')
-        except:
+        except Exception:
             pass
     return '1.0.0'
 
 
-def get_update_check_url() -> str:
-    """获取更新检查地址"""
+def get_update_server_url() -> str:
+    """获取更新服务地址"""
     version_file = os.path.join(get_app_dir(), "version.json")
     if not os.path.exists(version_file):
         version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "version.json")
-    
+
     if os.path.exists(version_file):
         try:
             with open(version_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 return data.get('update_check_url', '')
-        except:
+        except Exception:
             pass
     return ''
 
 
+def _strip_version_prefix(version: str) -> str:
+    """
+    🔧 2026-06-29 新增（A3 修复）：
+    从 'client/v1.0.0.10' 或 'v1.0.0.10' 中提取纯版本号 '1.0.0.10'
+    """
+    # 先去掉开头可能的 "client/" 或 "server/" 前缀
+    for prefix in ('client/', 'server/'):
+        if version.startswith(prefix):
+            version = version[len(prefix):]
+    # 再去掉开头的 'v' 前缀
+    return version.lstrip('v')
+
+
+def _normalize_version_parts(version: str) -> list:
+    """
+    将版本号字符串拆分为数字段（处理 A3 修复后的纯版本号）
+    例如: '1.0.0.25' -> [1, 0, 0, 25]
+    """
+    stripped = _strip_version_prefix(version)
+    parts = []
+    for part in stripped.split('.'):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            # 跳过无法转为整数的部分（如 0a, 1b）
+            parts.append(0)
+    return parts
+
+
 def compare_versions(v1: str, v2: str) -> int:
-    """比较版本号
+    """
+    🔧 2026-06-29 修复（A3）：
+    原实现只 strip('v')，无法处理 'client/v1.0.0.10' 格式。
+    修复后先去掉 'client/'/'server/' 前缀，再去掉 'v' 前缀。
+
     返回: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
     """
     try:
-        parts1 = [int(x) for x in v1.strip('v').split('.')]
-        parts2 = [int(x) for x in v2.strip('v').split('.')]
+        parts1 = _normalize_version_parts(v1)
+        parts2 = _normalize_version_parts(v2)
         max_len = max(len(parts1), len(parts2))
         parts1.extend([0] * (max_len - len(parts1)))
         parts2.extend([0] * (max_len - len(parts2)))
@@ -66,76 +102,127 @@ def compare_versions(v1: str, v2: str) -> int:
             if a < b:
                 return -1
         return 0
-    except:
+    except Exception:
         return 0
 
 
-def check_latest_version() -> Optional[Dict[str, Any]]:
-    """检查最新版本
-    返回: {'version': 'x.x.x', 'body': '更新说明', 'download_url': '下载地址', 'html_url': '发布页面'}
+def _check_min_compatible(current_version: str, min_compatible: str) -> Tuple[bool, str]:
     """
-    url = get_update_check_url()
-    if not url:
+    🔧 2026-06-29 新增（A4 修复）：
+    检查当前版本是否低于最低兼容版本。
+
+    Args:
+        current_version: 当前版本（如 '1.0.0.21'）
+        min_compatible: 最低兼容版本（如 '1.0.0'）
+
+    Returns:
+        (is_blocked, message)
+        - is_blocked=True 时必须阻止启动
+    """
+    if not min_compatible:
+        return False, ""
+    # current < min_compatible 时阻塞
+    if compare_versions(current_version, min_compatible) < 0:
+        return True, (
+            f"当前版本 ({current_version}) 低于最低兼容版本 ({min_compatible})，"
+            f"请先升级到最新版本后再启动。"
+        )
+    return False, ""
+
+
+def check_latest_version() -> Optional[Dict[str, Any]]:
+    """
+    🔧 2026-06-29 重写（A2 修复）：
+    对接更新服务 API: GET /api/version/client/{current_version}
+    返回格式与 main.py check_for_updates() 一致。
+
+    返回: {
+        'has_update': bool,
+        'latest_version': str,  # 纯版本号（不含 client/ 前缀），如 '1.0.0.25'
+        'min_compatible': str,  # 最低兼容版本（可能为空）
+        'changelog': str,
+        'force_update': bool,
+        'download_url': str,    # 可能为相对路径
+        'sha256_url': str,       # 可能为相对路径
+        'is_blocked': bool,     # 是否低于最低兼容版本
+        'block_message': str,
+    }
+    """
+    from config import Config
+
+    update_server = Config.UPDATE_SERVER_URL
+    if not update_server:
         return None
-    
+
+    current_version = Config.APP_VERSION
+    url = f"{update_server}/api/version/client/{current_version}"
+
     try:
-        headers = {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'PI-Manager-Client'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, timeout=10)
         if response.status_code != 200:
+            print(f"[Update] 检查更新失败: HTTP {response.status_code}")
             return None
-        
+
         data = response.json()
-        tag_name = data.get('tag_name', '')
-        version = tag_name.strip('v')
-        
-        assets = data.get('assets', [])
-        download_url = ''
-        for asset in assets:
-            name = asset.get('name', '').lower()
-            if 'client' in name and 'win' in name and name.endswith('.zip'):
-                download_url = asset.get('browser_download_url', '')
-                break
-        
-        if not download_url and assets:
-            download_url = assets[0].get('browser_download_url', '')
-        
+
+        latest_raw = data.get("latest", "")
+        latest_version = _strip_version_prefix(latest_raw)
+        min_compatible = data.get("min_compatible", "") or ""
+        is_blocked, block_message = _check_min_compatible(current_version, min_compatible)
+
+        changelog = data.get("changelog", "")
+        force_update = data.get("force", False)
+        download_url = data.get("download_url", "")
+        sha256_url = data.get("sha256_url", "")
+
+        # A6 修复：统一处理相对路径拼接（在返回值层面处理，调用方无需再处理）
+        if download_url and not download_url.startswith("http"):
+            download_url = f"{update_server}{download_url}"
+        if sha256_url and not sha256_url.startswith("http"):
+            sha256_url = f"{update_server}{sha256_url}"
+
         return {
-            'version': version,
-            'tag_name': tag_name,
-            'body': data.get('body', ''),
-            'name': data.get('name', ''),
+            'has_update': data.get("has_update", False),
+            'latest_version': latest_version,
+            'min_compatible': min_compatible,
+            'changelog': changelog,
+            'force_update': force_update,
             'download_url': download_url,
-            'html_url': data.get('html_url', ''),
-            'published_at': data.get('published_at', '')
+            'sha256_url': sha256_url,
+            'is_blocked': is_blocked,
+            'block_message': block_message,
         }
     except Exception as e:
-        print(f"[更新检查] 失败: {e}")
+        print(f"[Update] 检查更新异常: {e}")
         return None
 
 
 class UpdateCheckThread(QThread):
-    """后台更新检查线程"""
+    """
+    🔧 2026-06-29 重写：
+    使用更新服务 API，不再调用 GitHub API。
+    与 main.py check_for_updates() 逻辑对齐。
+    """
     check_finished = Signal(bool, dict)  # has_update, version_info
-    check_failed = Signal(str)  # error_message
-    
+    check_failed = Signal(str)           # error_message
+
     def __init__(self, parent=None):
         super().__init__(parent)
-    
+
     def run(self):
         try:
-            current_version = get_current_version()
             latest = check_latest_version()
-            
+
             if not latest:
                 self.check_failed.emit("无法获取最新版本信息")
                 return
-            
-            latest_version = latest.get('version', '0.0.0')
-            has_update = compare_versions(latest_version, current_version) > 0
-            
+
+            # 如果低于最低兼容版本，直接触发 update dialog 显示阻止消息
+            if latest.get('is_blocked'):
+                self.check_finished.emit(True, latest)
+                return
+
+            has_update = latest.get('has_update', False)
             self.check_finished.emit(has_update, latest)
         except Exception as e:
             self.check_failed.emit(str(e))

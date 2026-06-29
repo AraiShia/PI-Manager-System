@@ -1585,10 +1585,45 @@ class MainWindow(QMainWindow):
         return "未知"
 
     def _check_update_async(self):
-        """异步检查更新（不阻塞主界面）"""
+        """
+        🔧 2026-06-29 修复：
+        - A4: 新增 min_compatible 和 is_blocked 返回值处理
+          当 is_blocked=True 时，显示阻塞消息并强制引导用户升级
+        """
         from config import Config
 
-        has_update, latest_ver, changelog, force_update, download_url, sha256_url = check_for_updates()
+        result = check_for_updates()
+        has_update, latest_ver, changelog, force_update, download_url, sha256_url, min_compatible, is_blocked = result
+
+        if is_blocked:
+            # A4 修复：低于最低兼容版本，强制阻塞并引导升级
+            QApplication.instance().processEvents()
+            block_msg = (
+                f"⚠️ 版本兼容检查失败\n\n"
+                f"当前版本: {Config.APP_VERSION}\n"
+                f"最低兼容版本: {min_compatible}\n\n"
+                f"{changelog or '请下载最新版本后再启动程序。'}"
+            )
+            reply = QMessageBox.critical(
+                self,
+                "版本过低，无法启动",
+                block_msg,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes and download_url:
+                success = download_and_install_update(
+                    download_url, sha256_url, sys.executable, latest_ver
+                )
+                if success:
+                    QMessageBox.information(self, "提示", "正在安装更新，请稍候...")
+                    QApplication.instance().quit()
+                else:
+                    QMessageBox.warning(self, "提示", "下载失败，请手动从更新服务下载最新版本。")
+            else:
+                QMessageBox.warning(self, "提示", "程序将退出，请升级后再启动。")
+                QApplication.instance().quit()
+            return
 
         if has_update:
             QApplication.instance().processEvents()
@@ -1600,9 +1635,7 @@ class MainWindow(QMainWindow):
             )
             update_dialog.exec()
             if update_dialog.was_update_accepted() and download_url:
-                if sha256_url and not sha256_url.startswith("http"):
-                    sha256_url = f"{Config.UPDATE_SERVER_URL}{sha256_url}"
-
+                # A6 修复：URL 拼接已在 check_for_updates() 返回时统一处理，此处不再重复拼接
                 success = download_and_install_update(
                     download_url,
                     sha256_url,
@@ -9973,13 +10006,55 @@ class BugReportDialog(QDialog):
         self._submit_bug(title, description)
 
     def _submit_bug(self, title, description):
+        """
+        🔧 2026-06-29 重写：修复以下问题
+        - B1: files 变量类型错误 —— screenshots 用 dict{}，但 logs 用 list.append()，
+              dict 没有 append 方法，运行时报 AttributeError
+        - B2: MIME 类型写死为 image/jpeg，截图可能是 png
+        - B3: 文件句柄关闭逻辑假设 files 是 dict，与 B1 矛盾
+        修复后统一用 list 形式（符合 requests 官方 multipart 上传规范），
+        requests 会自动为每个 part 设置合适的 Content-Type header。
+        """
         try:
             import requests
             import os
             from config import Config
 
             url = f"{Config.UPDATE_SERVER_URL}/api/bug"
-            files = {}
+            # 🔧 B1 修复：统一使用 list 格式（field_name, (filename, file_obj, content_type)）
+            files = []
+            open_files = []  # 🔧 B3 修复：单独跟踪打开的文件句柄，确保 finally 全部关闭
+
+            # 添加截图（最多 5 张）
+            for file_path in self.selected_files:
+                filename = os.path.basename(file_path)
+                ext = filename.rsplit('.', 1)[-1].lower()
+                # B2 修复：根据扩展名动态判断 MIME 类型
+                if ext in ('jpg', 'jpeg'):
+                    content_type = 'image/jpeg'
+                elif ext == 'png':
+                    content_type = 'image/png'
+                else:
+                    content_type = 'application/octet-stream'
+                fp = open(file_path, 'rb')
+                open_files.append(fp)
+                files.append(('screenshots', (filename, fp, content_type)))
+
+            # 添加日志文件（最多 3 个）
+            for file_path in self.selected_log_files:
+                filename = os.path.basename(file_path)
+                ext = filename.rsplit('.', 1)[-1].lower()
+                if ext == 'log':
+                    content_type = 'text/plain'
+                elif ext == 'txt':
+                    content_type = 'text/plain'
+                else:
+                    content_type = 'application/octet-stream'
+                fp = open(file_path, 'rb')
+                open_files.append(fp)
+                files.append(('logs', (filename, fp, content_type)))
+
+            # data 部分（非文件字段）
             data = {
                 'title': title,
                 'description': description,
@@ -9987,32 +10062,17 @@ class BugReportDialog(QDialog):
                 'contact': self.contact_input.text().strip(),
             }
 
-            # 添加截图
-            for file_path in self.selected_files:
-                filename = os.path.basename(file_path)
-                files[f'screenshots'] = (filename, open(file_path, 'rb'), 'image/jpeg')
-
-            # 2026-06-25：添加日志文件（使用列表格式上传多个同名文件）
-            if self.selected_log_files:
-                for file_path in self.selected_log_files:
-                    filename = os.path.basename(file_path)
-                    ext = filename.split('.')[-1].lower()
-                    if ext == 'log':
-                        content_type = 'text/plain'
-                    elif ext == 'txt':
-                        content_type = 'text/plain'
-                    else:
-                        content_type = 'application/octet-stream'
-                    # 使用列表格式上传多个同名文件
-                    files.append(('logs', (filename, open(file_path, 'rb'), content_type)))
-
             response = requests.post(url, data=data, files=files, timeout=60)
 
-            # 关闭文件句柄
-            for key, (_, fp, _) in files.items():
-                fp.close()
+            # B3 修复：统一在 finally 中关闭所有打开的文件句柄
+            for fp in open_files:
+                try:
+                    fp.close()
+                except Exception:
+                    pass
 
-            if response.status_code == 201:
+            # 响应检查：200 和 201 都算成功
+            if response.status_code in (200, 201):
                 result = response.json()
                 self._show_result(True, f"提交成功！Bug 编号: #{result.get('id', '?')}")
             else:
@@ -10025,6 +10085,13 @@ class BugReportDialog(QDialog):
             self._show_result(False, f"连接超时：\n{str(e)[:200]}")
         except Exception as e:
             self._show_result(False, f"提交失败：\n{str(e)[:200]}")
+        finally:
+            # 🔧 B3 修复：finally 确保即使请求前抛异常，文件句柄也能关闭
+            for fp in open_files:
+                try:
+                    fp.close()
+                except Exception:
+                    pass
 
     def _show_result(self, success, message):
         """显示提交结果"""
@@ -10118,8 +10185,51 @@ start "" "{current_exe_path}"
         return False
 
 
+def _strip_version_prefix(version: str) -> str:
+    """从 'client/v1.0.0.10' 中提取纯版本号 '1.0.0.10'"""
+    for prefix in ('client/', 'server/'):
+        if version.startswith(prefix):
+            version = version[len(prefix):]
+    return version.lstrip('v')
+
+
+def _normalize_version(version: str) -> list:
+    """将版本号字符串拆分为数字段"""
+    stripped = _strip_version_prefix(version)
+    parts = []
+    for part in stripped.split('.'):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    return parts
+
+
+def _compare_versions(v1: str, v2: str) -> int:
+    """比较版本号，返回: 1 if v1>v2, -1 if v1<v2, 0 if equal"""
+    try:
+        p1 = _normalize_version(v1)
+        p2 = _normalize_version(v2)
+        max_len = max(len(p1), len(p2))
+        p1.extend([0] * (max_len - len(p1)))
+        p2.extend([0] * (max_len - len(p2)))
+        for a, b in zip(p1, p2):
+            if a > b:
+                return 1
+            if a < b:
+                return -1
+        return 0
+    except Exception:
+        return 0
+
+
 def check_for_updates():
-    """检查更新"""
+    """
+    🔧 2026-06-29 修复：
+    - A3: latest_version 先去掉 'client/' 和 'v' 前缀再显示
+    - A4: 增加 min_compatible 最低版本兼容检查
+    - A6: URL 拼接已在返回值层面统一处理
+    """
     try:
         import requests
         from config import Config
@@ -10128,7 +10238,7 @@ def check_for_updates():
         update_server = Config.UPDATE_SERVER_URL
 
         if not update_server:
-            return False, current_version, None, False, None, None
+            return False, current_version, None, False, None, None, None, False
 
         url = f"{update_server}/api/version/client/{current_version}"
         response = requests.get(url, timeout=10)
@@ -10136,7 +10246,18 @@ def check_for_updates():
         if response.status_code == 200:
             data = response.json()
             has_update = data.get("has_update", False)
-            latest_version = data.get("latest", current_version)
+
+            # A3 修复：去掉 client/ 和 v 前缀后再显示
+            latest_raw = data.get("latest", current_version)
+            latest_version = _strip_version_prefix(latest_raw)
+
+            # A4 修复：检查最低兼容版本
+            min_compatible = data.get("min_compatible", "") or ""
+            is_blocked = False
+            if min_compatible and _compare_versions(current_version, min_compatible) < 0:
+                is_blocked = True
+                has_update = True  # 强制触发 update dialog 显示阻止消息
+
             changelog = data.get("changelog", "")
             force_update = data.get("force", False)
             download_url = data.get("download_url", "")
@@ -10147,14 +10268,14 @@ def check_for_updates():
             if sha256_url and not sha256_url.startswith("http"):
                 sha256_url = f"{update_server}{sha256_url}"
 
-            return has_update, latest_version, changelog, force_update, download_url, sha256_url
+            return has_update, latest_version, changelog, force_update, download_url, sha256_url, min_compatible, is_blocked
         else:
             print(f"[Update] 检查更新失败: HTTP {response.status_code}")
-            return False, current_version, None, False, None, None
+            return False, current_version, None, False, None, None, None, False
 
     except Exception as e:
         print(f"[Update] 检查更新异常: {e}")
-        return False, None, None, False, None, None
+        return False, None, None, False, None, None, None, False
 
 
 def main():
