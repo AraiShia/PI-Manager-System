@@ -88,18 +88,18 @@ jobs:
       - name: Generate SHA256
         shell: pwsh
         run: |
-          $version = "${{ needs.build-client.outputs.version }}"
+          $version = "${{ steps.get_version.outputs.version }}"
           $srcDir = "client/dist/PI_Manager_Client_v2"
           $zipName = "PI-Manager-Client-v$version-win-x64.zip"
-          
+
           Compress-Archive -Path $srcDir -DestinationPath $zipName -Force
-          
+
           $hash = Get-FileHash -Path $zipName -Algorithm SHA256
           $hash.Hash | Out-File -FilePath "$zipName.sha256" -Encoding ascii
-          
+
           Write-Output "Created: $zipName"
           Write-Output "SHA256: $($hash.Hash)"
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -107,19 +107,19 @@ jobs:
           path: |
             *.zip
             *.sha256
-      
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "client/v${{ needs.build-client.outputs.version }}"
-          tag_name: "client/v${{ needs.build-client.outputs.version }}"
+          name: "client/v${{ steps.get_version.outputs.version }}"
+          tag_name: "client/v${{ steps.get_version.outputs.version }}"
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
-            PI-Manager-Client-v${{ needs.build-client.outputs.version }}-win-x64.zip
-            PI-Manager-Client-v${{ needs.build-client.outputs.version }}-win-x64.zip.sha256
-      
+            PI-Manager-Client-v${{ steps.get_version.outputs.version }}-win-x64.zip
+            PI-Manager-Client-v${{ steps.get_version.outputs.version }}-win-x64.zip.sha256
+
       - name: Publish to Update Service
         if: env.UPDATE_SERVICE_URL != ''
         env:

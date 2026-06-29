@@ -82,18 +82,18 @@ jobs:
       - name: Generate SHA256
         shell: pwsh
         run: |
-          $version = "${{ needs.build-server.outputs.version }}"
+          $version = "${{ steps.get_version.outputs.version }}"
           $srcDir = "backend/dist/PI-Manager-Server"
           $zipName = "PI-Manager-Server-v$version-win-x64.zip"
-          
+
           Compress-Archive -Path $srcDir -DestinationPath $zipName -Force
-          
+
           $hash = Get-FileHash -Path $zipName -Algorithm SHA256
           $hash.Hash | Out-File -FilePath "$zipName.sha256" -Encoding ascii
-          
+
           Write-Output "Created: $zipName"
           Write-Output "SHA256: $($hash.Hash)"
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -101,26 +101,26 @@ jobs:
           path: |
             *.zip
             *.sha256
-      
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "server/v${{ needs.build-server.outputs.version }}"
-          tag_name: "server/v${{ needs.build-server.outputs.version }}"
+          name: "server/v${{ steps.get_version.outputs.version }}"
+          tag_name: "server/v${{ steps.get_version.outputs.version }}"
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
-            PI-Manager-Server-v${{ needs.build-server.outputs.version }}-win-x64.zip
-            PI-Manager-Server-v${{ needs.build-server.outputs.version }}-win-x64.zip.sha256
-      
+            PI-Manager-Server-v${{ steps.get_version.outputs.version }}-win-x64.zip
+            PI-Manager-Server-v${{ steps.get_version.outputs.version }}-win-x64.zip.sha256
+
       - name: Publish to Update Service
         if: env.UPDATE_SERVICE_URL != ''
         env:
           UPDATE_SERVICE_URL: ${{ secrets.UPDATE_SERVICE_URL }}
           UPDATE_SERVICE_TOKEN: ${{ secrets.UPDATE_SERVICE_TOKEN }}
         run: |
-          TAG="server/v${{ needs.build-server.outputs.version }}"
+          TAG="server/v${{ steps.get_version.outputs.version }}"
           RELEASE_NOTE="${{ github.event.inputs.release_note || '新版本发布' }}"
           
           echo "Publishing server version $TAG to update service..."
