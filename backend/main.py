@@ -102,6 +102,18 @@ async def read_root():
         return FileResponse(index_path)
     return {"message": "PI订单管理系统 API"}
 
+
+@app.get("/api/version")
+async def get_server_version():
+    """返回服务端版本号"""
+    version_file = os.path.join(base_dir, "version.json")
+    if os.path.exists(version_file):
+        import json
+        with open(version_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {"version": data.get("version", "1.0.0")}
+    return {"version": app.version}
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}

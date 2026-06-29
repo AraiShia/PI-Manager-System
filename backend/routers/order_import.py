@@ -78,7 +78,7 @@ async def preview_order_file(
         
         # 解析Excel
         parser = ExcelParser()
-        result = parser.parse_preview(content, max_rows=50)
+        result = parser.parse_preview(content, max_rows=99999)
         
         return PreviewResponse(
             success=True,
@@ -176,6 +176,7 @@ async def import_orders(
         all_items = []
         success_rows = 0
         failed_rows = 0
+        temp_model_count = 0  # 统计自动生成的临时编号数量
 
         for row_index, row in enumerate(rows[1:], start=2):
             try:
@@ -183,7 +184,7 @@ async def import_orders(
                 logger.info(f"\n[📝 处理第{row_index}行] 开始处理...")
                 logger.debug(f"  原始数据: {row[:min(10, len(row))]}...")
 
-                order_data, parse_errors = _transform_row_data(row, header_mapping)
+                order_data, parse_errors = _transform_row_data(row, header_mapping, row_index)
 
                 if parse_errors:
                     logger.warning(f"[⚠️ 第{row_index}行解析错误] 错误数={len(parse_errors)}")
@@ -221,6 +222,8 @@ async def import_orders(
 
                 all_items.append(order_data)
                 success_rows += 1
+                if order_data.get('_temp_model'):
+                    temp_model_count += 1
                 row_duration = (datetime.now() - row_start_time).total_seconds()
                 logger.info(f"  [✅ 第{row_index}行处理完成] 耗时={row_duration:.3f}s, product_id={order_data.get('product_id')}")
 
@@ -247,6 +250,7 @@ async def import_orders(
                 success=False,
                 success_count=0,
                 failed_count=len(rows) - 1,
+                temp_model_count=0,
                 errors=errors,
                 created_orders=[]
             )
@@ -306,6 +310,7 @@ async def import_orders(
                 success=False,
                 success_count=0,
                 failed_count=max(0, len(rows) - 1),
+                temp_model_count=0,
                 errors=[ImportError(row=1, error=str(e), suggestions=["联系管理员"])],
                 created_orders=[]
             )
@@ -314,7 +319,7 @@ async def import_orders(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _transform_row_data(row: List[str], header_mapping: dict) -> tuple[dict, list]:
+def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0) -> tuple[dict, list]:
     """将Excel行数据转换为订单数据（基于表头动态映射）
 
     Args:
@@ -322,14 +327,19 @@ def _transform_row_data(row: List[str], header_mapping: dict) -> tuple[dict, lis
         header_mapping: 表头到字段的映射字典
             - MODEL/客户型号 -> model (匹配 PrdCustomerProduct.customer_model)
             - QTY/数量/QUANTITY -> qty (匹配数量)
+        row_index: 行号（用于生成临时编号）
 
     Returns:
         tuple: (data_dict, errors_list)
 
     🔧 2026-06-22 升级：所有 41 列字段直接存入 pi_proforma_invoice_item 主表
+    🔧 2026-06-29 升级：缺少 Model 时自动生成临时编号 TP+YYMMDD+序号
     """
+    import random
+    import string
     errors = []
     data = {}
+    generated_temp_model = False
 
     for col_idx, value in enumerate(row):
         if col_idx >= len(header_mapping):
@@ -434,6 +444,17 @@ def _transform_row_data(row: List[str], header_mapping: dict) -> tuple[dict, lis
         # === 兼容旧字段名 ===
         elif field_name == 'model':
             data['model'] = value.strip() if value else None
+
+    # 缺少 customer_model 时自动生成临时编号 TP+YYMMDD+随机2位
+    if not data.get('customer_model'):
+        today = datetime.now()
+        date_part = today.strftime('%y%m%d')
+        rand1 = random.choice(string.ascii_uppercase)
+        rand2 = random.choice(string.ascii_uppercase)
+        seq = str(row_index).zfill(2) if row_index else '01'
+        data['customer_model'] = f"TP{date_part}{rand1}{rand2}{seq}"
+        generated_temp_model = True
+        data['_temp_model'] = True  # 标记，供后续状态灯使用
 
     return data, errors
 

@@ -1565,9 +1565,20 @@ class MainWindow(QMainWindow):
         # 全局变量
         self.default_profit_margin = 25.0  # 默认毛利率
         self.exchange_rate = 7.24          # 默认汇率
+        self.server_version = self._fetch_server_version()
         self.init_ui()
         self.load_globals()
         self.load_data()
+
+    def _fetch_server_version(self) -> str:
+        """获取服务端版本号"""
+        try:
+            resp = self.api_client.get("/api/version")
+            if resp:
+                return resp.get("version", "未知")
+        except Exception:
+            pass
+        return "未知"
 
     def _check_update_async(self):
         """异步检查更新（不阻塞主界面）"""
@@ -1659,7 +1670,9 @@ class MainWindow(QMainWindow):
         return max(0, profit_margin)  # 不返回负数
 
     def init_ui(self):
-        self.setWindowTitle(f"PI订单管理系统 - {DEPARTMENT_CONFIG[self.dept_id]['name']}")
+        from config import Config
+        client_ver = Config.APP_VERSION.lstrip('v')
+        self.setWindowTitle(f"PI订单管理系统 [{client_ver}] [Server {self.server_version}] - {DEPARTMENT_CONFIG[self.dept_id]['name']}")
         self.setMinimumSize(1200, 800)
         # 默认全屏显示
         self.showMaximized()
@@ -1675,7 +1688,7 @@ class MainWindow(QMainWindow):
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(20, 0, 20, 0)
 
-        title = QLabel(f"📦 PI订单管理系统 - {DEPARTMENT_CONFIG[self.dept_id]['name']}")
+        title = QLabel(f"📦 PI订单管理系统 [{client_ver}] [Server {self.server_version}] - {DEPARTMENT_CONFIG[self.dept_id]['name']}")
         title.setFont(get_font(16, QFont.Weight.Bold))
         title.setStyleSheet("color: white;")
         header_layout.addWidget(title)
