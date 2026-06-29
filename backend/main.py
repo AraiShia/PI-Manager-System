@@ -34,7 +34,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="PI订单管理系统", 
-    version="1.0.0.24",
+    version="1.0.0.27",
     limit_max_request_size=500 * 1024 * 1024  # 500MB
 )
 
