@@ -18,6 +18,8 @@ from PySide6.QtGui import QColor, QFont
 import json
 import traceback
 import os
+import tempfile
+from openpyxl import load_workbook, Workbook
 
 
 class OrderImportDialog(QDialog):
@@ -52,6 +54,9 @@ class OrderImportDialog(QDialog):
         # 2026-06-23：客户-产品表缓存（非补充模式也预初始化便于测试）
         self._db_existing_models = {}  # model -> product dict
         self._db_models_loaded = False  # 标记是否已完成加载（避免 race condition）
+        # 🔧 2026-06-29：用户右键删除预览行时记录被删除的索引（相对 _raw_preview_rows），
+        # 用于在导入时过滤原始 Excel 文件，避免删除的行被导入
+        self._deleted_preview_indices = set()
 
         self.setWindowTitle("补充商品" if is_supplement_mode else "订单导入")
         self.setMinimumSize(1000, 700)
@@ -350,6 +355,8 @@ class OrderImportDialog(QDialog):
         self.preview_table.setColumnCount(0)
         self.preview_data = None
         self._current_temp_pi_no = None  # [6.0.2] [6.0.2.1] 清空临时PI
+        # 🔧 2026-06-29：清空时也清空删除行索引
+        self._deleted_preview_indices = set()
         self.preview_status_label.setText("已清空，请重新选择文件")
         self.auto_match_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
@@ -626,6 +633,8 @@ class OrderImportDialog(QDialog):
     @Slot(list, list, int, int)
     def on_preview_ready(self, headers: list, rows: list, total: int, columns: int):
         """预览加载完成 - 显示原始Excel全部内容"""
+        # 🔧 2026-06-29：重新加载预览时清空之前删除的行索引
+        self._deleted_preview_indices = set()
         # 保存原始（未过滤）数据
         self._raw_preview_rows = rows
         # 2026-06-26：保存初始预览行（用于不完整行计数，勾选过滤后保持不变）
@@ -780,7 +789,19 @@ class OrderImportDialog(QDialog):
         menu.exec(self.preview_table.viewport().mapToGlobal(pos))
 
     def _delete_preview_row(self, row: int):
-        """删除预览表格指定行"""
+        """删除预览表格指定行
+        🔧 2026-06-29 修复：原实现只删除表格行，但 ImportWorker 重新读取原始 Excel 文件导入，
+        导致删除的行仍然被导入。需要同步记录被删除的索引到 _deleted_preview_indices，
+        供 start_import 时过滤原始 Excel。
+        """
+        # 在补充商品模式下，display_rows 是 _raw_preview_rows 的过滤结果（_skipped_indices），
+        # preview_table 行号 = _raw_preview_rows 索引中未被 _skipped_indices 过滤的，
+        # 所以需要反向映射回 _raw_preview_rows 索引
+        raw_index = self._map_display_row_to_raw_index(row)
+        if raw_index is not None:
+            self._deleted_preview_indices.add(raw_index)
+            print(f"[删除行] preview 行 {row} → _raw_preview_rows 索引 {raw_index}")
+
         self.preview_table.removeRow(row)
         # 重新编号（第一列）
         for r in range(self.preview_table.rowCount()):
@@ -791,6 +812,21 @@ class OrderImportDialog(QDialog):
         self._refresh_preview_stats()
         # 重新高亮临时行
         self._highlight_temp_rows()
+
+    def _map_display_row_to_raw_index(self, display_row: int) -> Optional[int]:
+        """将 preview_table 的显示行号映射到 _raw_preview_rows 中的原始索引
+        考虑补充商品模式下的 _skipped_indices 过滤。
+        """
+        if not hasattr(self, '_raw_preview_rows') or not self._raw_preview_rows:
+            return None
+        skipped = getattr(self, '_skipped_indices', set()) or set()
+        display_to_raw = []
+        for raw_idx in range(len(self._raw_preview_rows)):
+            if raw_idx not in skipped and raw_idx not in self._deleted_preview_indices:
+                display_to_raw.append(raw_idx)
+        if 0 <= display_row < len(display_to_raw):
+            return display_to_raw[display_row]
+        return None
     
     def _on_keep_incomplete_toggled(self, checked: bool):
         """保留不完整行复选框状态变化"""
@@ -1116,21 +1152,72 @@ class OrderImportDialog(QDialog):
             return
 
         self.import_btn.setEnabled(False)
-        
+
         # 使用工作线程执行导入
         file_path = self.file_path_label.text()
         customer_id = self.customer_combo.currentData()
-        
+
         if not customer_id:
             QMessageBox.warning(self, "提示", "请先选择客户")
             self.import_btn.setEnabled(True)
             return
-        
-        self.import_worker = ImportWorker(self.api_client, file_path, customer_id)
+
+        # 🔧 2026-06-29 修复：如果用户右键删除了某些预览行，
+        # 需要在导入前生成一个排除这些行的临时 Excel 文件，
+        # 因为后端 /orders/import 接口不支持跳过行参数。
+        if self._deleted_preview_indices:
+            try:
+                temp_file_path = self._build_filtered_excel_for_import(file_path)
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"生成临时文件失败: {str(e)}")
+                self.import_btn.setEnabled(True)
+                return
+            # 清理上次的临时文件
+            if hasattr(self, '_last_temp_file') and self._last_temp_file and os.path.exists(self._last_temp_file):
+                try:
+                    os.unlink(self._last_temp_file)
+                except OSError:
+                    pass
+            self._last_temp_file = temp_file_path
+            file_path_to_import = temp_file_path
+        else:
+            file_path_to_import = file_path
+
+        self.import_worker = ImportWorker(self.api_client, file_path_to_import, customer_id)
         self.import_worker.import_completed.connect(self.on_import_completed)
         self.import_worker.error.connect(self.on_import_error)
         self.import_worker.finished.connect(lambda: self.import_btn.setEnabled(True))
         self.import_worker.start()
+
+    def _build_filtered_excel_for_import(self, src_file_path: str) -> str:
+        """根据 _deleted_preview_indices 生成过滤后的临时 Excel 文件
+        🔧 2026-06-29 新增：用于支持用户删除预览行后正确导入。
+
+        Args:
+            src_file_path: 原始 Excel 文件路径
+
+        Returns:
+            临时文件路径（调用方负责清理）
+        """
+        # 原始索引 → Excel 行号（1-based，包含表头）
+        # _raw_preview_rows 的索引 0 对应 Excel 第 2 行（第 1 行是表头）
+        excel_rows_to_skip = {idx + 2 for idx in self._deleted_preview_indices}
+
+        wb = load_workbook(src_file_path)
+        ws = wb.active
+
+        # 从后往前删除，避免索引偏移
+        for row_num in sorted(excel_rows_to_skip, reverse=True):
+            if row_num <= ws.max_row:
+                ws.delete_rows(row_num, 1)
+
+        # 写入临时文件
+        fd, temp_path = tempfile.mkstemp(suffix='.xlsx', prefix='pi_import_filtered_')
+        os.close(fd)
+        wb.save(temp_path)
+        wb.close()
+        print(f"[过滤导入] 原始文件={src_file_path}, 跳过 {len(excel_rows_to_skip)} 行 → {temp_path}")
+        return temp_path
     
     def _start_supplement_import(self):
         """[6.2.1] 补充商品导入"""
@@ -1229,11 +1316,28 @@ class OrderImportDialog(QDialog):
             temp_pi_base = self._current_temp_pi_no.rstrip('?')
             print(f"[6.0.2] 导入成功，临时PI基数: {temp_pi_base}，成功 {success_count} 条，is_temp_pi=True")
             # TODO [6.0.2.3]: 后端支持后，遍历成功导入的订单ID，调用 api_client.update_order_temp_pi() 写入正式 temp PI
+
+        # 🔧 2026-06-29：导入完成后清理临时文件
+        self._cleanup_temp_file()
     
     @Slot(str)
     def on_import_error(self, error_msg: str):
         """导入失败"""
+        # 🔧 2026-06-29：导入失败时也清理临时文件
+        self._cleanup_temp_file()
         QMessageBox.warning(self, "错误", f"导入失败: {error_msg}")
+
+    def _cleanup_temp_file(self):
+        """清理 _last_temp_file 临时文件（如果存在）"""
+        if hasattr(self, '_last_temp_file') and self._last_temp_file:
+            try:
+                if os.path.exists(self._last_temp_file):
+                    os.unlink(self._last_temp_file)
+                    print(f"[清理临时文件] 已删除: {self._last_temp_file}")
+            except OSError as e:
+                print(f"[清理临时文件] 失败: {e}")
+            finally:
+                self._last_temp_file = None
     
     def _load_supplement_order_data(self):
         """[6.2.1] 加载当前订单数据用于去重"""
