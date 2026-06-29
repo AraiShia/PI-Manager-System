@@ -342,10 +342,15 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
     generated_temp_model = False
 
     for col_idx, value in enumerate(row):
-        if col_idx >= len(header_mapping):
+        # 🔧 2026-06-29 修复：当表头列中存在空白列（无表头）时，
+        # header_mapping 是稀疏的（如 {0: 'model', 2: 'qty'}）。
+        # 旧的 `col_idx >= len(header_mapping)` 判断会把 col_idx=2（Qty 列）误判为越界而跳过，
+        # 且 `list(header_mapping.values())[col_idx]` 会因为位置错位导致字段映射错乱（如把 B 列空值当成 Qty）。
+        # 正确做法：用 `col_idx not in header_mapping` 判断，并用字典取值。
+        if col_idx not in header_mapping:
             continue
 
-        field_name = list(header_mapping.values())[col_idx]
+        field_name = header_mapping[col_idx]
 
         # === A组: 基础信息 (Col 0-9) ===
         if field_name == 'order_date':
