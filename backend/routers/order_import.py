@@ -162,8 +162,8 @@ async def import_orders(
                 header_mapping[col_idx] = 'qty'
                 logger.debug(f"  [表头映射-QTY] 列{col_idx}: '{header}' → 'qty'")
             elif header.upper() in ('MODEL', '客户型号'):
-                header_mapping[col_idx] = 'model'
-                logger.debug(f"  [表头映射-MODEL] 列{col_idx}: '{header}' → 'model'")
+                header_mapping[col_idx] = 'customer_code'
+                logger.debug(f"  [表头映射-MODEL] 列{col_idx}: '{header}' → 'customer_code'")
             elif header.upper() in ('客户产品编号',):
                 header_mapping[col_idx] = 'customer_code'
                 logger.debug(f"  [表头映射] 列{col_idx}: '{header}' → 'customer_code'")
@@ -171,7 +171,7 @@ async def import_orders(
         logger.info(f"[📋 表头识别结果]")
         logger.info(f"  原始表头: {headers}")
         logger.info(f"  字段映射: {header_mapping}")
-        logger.info(f"  识别到关键字段: Model={'✓' if 'model' in header_mapping.values() else '✗'}, QTY={'✓' if 'qty' in header_mapping.values() else '✗'}")
+        logger.info(f"  识别到关键字段: customer_code={'✓' if 'customer_code' in header_mapping.values() else '✗'}, QTY={'✓' if 'qty' in header_mapping.values() else '✗'}")
 
         all_items = []
         success_rows = 0
@@ -200,10 +200,9 @@ async def import_orders(
 
                 # 输出关键字段值
                 logger.info(f"  [字段解析结果]")
-                logger.info(f"    MODEL: {order_data.get('model')}")
+                logger.info(f"    客户产品编号(MODEL): {order_data.get('customer_code')}")
                 logger.info(f"    QTY: {order_data.get('qty')}")
                 logger.info(f"    OE号: {order_data.get('oe_number')}")
-                logger.info(f"    客户编号: {order_data.get('customer_code')}")
 
                 if auto_match:
                     logger.info(f"  [产品自动匹配] 开始...")
@@ -215,8 +214,8 @@ async def import_orders(
                     # 匹配状态详情
                     if order_data.get('product_id'):
                         logger.info(f"    ✓ 匹配成功: product_id={order_data.get('product_id')}")
-                    elif order_data.get('model'):
-                        logger.info(f"    ⚠ 未匹配到产品，将创建临时产品: model={order_data.get('model')}")
+                    elif order_data.get('customer_code'):
+                        logger.info(f"    ⚠ 未匹配到产品，将创建临时产品: customer_code={order_data.get('customer_code')}")
                     else:
                         logger.warning(f"    ✗ 无MODEL字段，无法匹配")
 
@@ -325,7 +324,7 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
     Args:
         row: Excel行数据
         header_mapping: 表头到字段的映射字典
-            - MODEL/客户型号 -> model (匹配 PrdCustomerProduct.customer_model)
+            - MODEL/客户型号 -> customer_code (匹配客户产品编号)
             - QTY/数量/QUANTITY -> qty (匹配数量)
         row_index: 行号（用于生成临时编号）
 
@@ -333,7 +332,7 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
         tuple: (data_dict, errors_list)
 
     🔧 2026-06-22 升级：所有 41 列字段直接存入 pi_proforma_invoice_item 主表
-    🔧 2026-06-29 升级：缺少 Model 时自动生成临时编号 TP+YYMMDD+序号
+    🔧 2026-06-29 修正：MODEL 列值写入 customer_code（客户产品编号），Model 缺失时自动生成临时编号 TP+YYMMDD+序号
     """
     import random
     import string
@@ -343,7 +342,7 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
 
     for col_idx, value in enumerate(row):
         # 🔧 2026-06-29 修复：当表头列中存在空白列（无表头）时，
-        # header_mapping 是稀疏的（如 {0: 'model', 2: 'qty'}）。
+        # header_mapping 是稀疏的（如 {0: 'customer_code', 2: 'qty'}）。
         # 旧的 `col_idx >= len(header_mapping)` 判断会把 col_idx=2（Qty 列）误判为越界而跳过，
         # 且 `list(header_mapping.values())[col_idx]` 会因为位置错位导致字段映射错乱（如把 B 列空值当成 Qty）。
         # 正确做法：用 `col_idx not in header_mapping` 判断，并用字典取值。
@@ -365,8 +364,8 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
             data['remark'] = value.strip() if value else None
         elif field_name == 'product_desc' or field_name == 'detail_desc':
             data['detail_desc'] = value.strip() if value else None
-        elif field_name == 'customer_model':
-            data['customer_model'] = value.strip() if value else None
+        elif field_name == 'customer_code':
+            data['customer_code'] = value.strip() if value else None
         elif field_name == 'product_feature':
             data['product_feature'] = value.strip() if value else None
         elif field_name == 'qty' or field_name == 'quantity':
@@ -446,18 +445,19 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
         elif field_name == 'invoice_status':
             data['invoice_status'] = value.strip() if value else None
 
-        # === 兼容旧字段名 ===
+        # 兼容旧字段名 ===
         elif field_name == 'model':
             data['model'] = value.strip() if value else None
 
-    # 缺少 customer_model 时自动生成临时编号 TP+YYMMDD+随机2位
-    if not data.get('customer_model'):
+    # 🔧 2026-06-29 修正：MODEL 列值写入 customer_code（客户产品编号），而非 customer_model
+    # customer_code 为空时自动生成临时编号 TP+YYMMDD+随机2位
+    if not data.get('customer_code'):
         today = datetime.now()
         date_part = today.strftime('%y%m%d')
         rand1 = random.choice(string.ascii_uppercase)
         rand2 = random.choice(string.ascii_uppercase)
         seq = str(row_index).zfill(2) if row_index else '01'
-        data['customer_model'] = f"TP{date_part}{rand1}{rand2}{seq}"
+        data['customer_code'] = f"TP{date_part}{rand1}{rand2}{seq}"
         generated_temp_model = True
         data['_temp_model'] = True  # 标记，供后续状态灯使用
 
@@ -495,13 +495,12 @@ def _parse_decimal(value: str) -> Decimal:
 
 
 def _auto_match_entities(data: dict, product_matcher: ProductMatcher, customer_id: int = None):
-    """自动匹配产品（根据 Model 列匹配 PrdCustomerProduct.customer_model）
+    """自动匹配产品（根据 Model 列匹配 PrdCustomerProduct.customer_code）
     匹配不到时自动创建临时产品
 
-    🔧 2026-06-22 修复：同时支持 'model' 和 'customer_model' 字段
+    🔧 2026-06-29 修正：Model 列值已写入 customer_code，用 customer_code 匹配
     """
-    # 🔧 2026-06-22 修复：兼容两种字段名 'model' 和 'customer_model'
-    model_code = data.get('model') or data.get('customer_model')
+    model_code = data.get('customer_code') or data.get('model')
 
     logger.info(f"[导入匹配] 开始匹配 - model_code={model_code}, customer_id={customer_id}")
     logger.info(f"[导入匹配] 原始数据: {data}")

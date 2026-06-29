@@ -373,14 +373,14 @@ EXCEL_HEADER_MAPPING = {
     '订单日期': 'order_date',
     'ORDER NO.': 'pi_no',
     '客户产品编号': 'customer_code',
-    '客户型号': 'customer_model',  # 🔧 2026-06-29 修复：原映射到 'model' 但 _transform_row_data 不处理 'model'，导致 Model 值被静默丢弃；改为 'customer_model' 与 _transform_row_data 处理逻辑对齐
+    '客户型号': 'customer_code',  # 🔧 2026-06-29 修正：MODEL 列值应写入客户产品编号，而非客户型号
     'OE号': 'oe_number',
     '产品描述': 'product_desc',
     '产品名称': 'detail_desc',
     '客户备注': 'remark',
     '备注': 'remark',
     '客户需求/产品备注': 'remark',
-    '客户型号(Model)': 'customer_model',
+    '客户型号(Model)': 'customer_code',
     '产品特性': 'product_feature',
     '产品细节': 'product_detail',
     '数量': 'quantity',
