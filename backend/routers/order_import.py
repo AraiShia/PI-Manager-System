@@ -78,7 +78,7 @@ async def preview_order_file(
         
         # 解析Excel
         parser = ExcelParser()
-        result = parser.parse_preview(content, max_rows=10)
+        result = parser.parse_preview(content, max_rows=50)
         
         return PreviewResponse(
             success=True,

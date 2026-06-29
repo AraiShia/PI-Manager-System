@@ -52,7 +52,7 @@ jobs:
       - name: Update version files
         shell: pwsh
         run: |
-          $version = "${{ needs.build-client.outputs.version }}"
+          $version = "${{ steps.get_version.outputs.version }}"
           $buildDate = Get-Date -Format "yyyy-MM-dd"
           
           # 更新客户端 config.py
