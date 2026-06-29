@@ -732,6 +732,9 @@ class OrderDetailPanel(QWidget):
         setc(1, order.get('pi_no', order.get('order_no', '')))
 
         # ===== Col 2: 客户产品编号 =====
+        # 🔧 2026-06-29 修正可编辑性语义：
+        # - 正式产品（Model 已获取到）：客户产品编号已正确填充，不允许编辑 (readonly=True)
+        # - 临时产品（Model 未获取到，自动生成 TP 编号）：允许用户直接编辑填写正确的客户产品编号 (readonly=False)
         product_code = (
             item.get('customer_model')
             or item.get('customer_code')
@@ -749,7 +752,7 @@ class OrderDetailPanel(QWidget):
                     product_code = item.get('oe_number') or '-'
             else:
                 product_code = '-'
-        setc(2, product_code, readonly=is_temp)
+        setc(2, product_code, readonly=not is_temp)
 
         # ===== Col 3: OE号 =====
         setc(3, g(item, 'oe_number') or g(item, 'oe_no'))

@@ -3927,7 +3927,13 @@ class MainWindow(QMainWindow):
             is_temp = item_is_temporary or not item.get('product_id') or item.get('product_id') == 0
             print(f"[DEBUG] DoubleClick row={row}: is_temp={is_temp}, product_id={item.get('product_id')}, is_temporary={item.get('is_temporary')}")
             if is_temp:
-                self._handle_temporary_product_edit(row, column, item, order)
+                # 🔧 2026-06-29 修正：临时产品 Col 2 (客户产品编号) 允许直接编辑
+                # 因为 Model 字段未获取到，自动生成的 TP 编号需要用户手动填入正确编号
+                # 后两列 (Col 5 产品名称、Col 7 客户型号) 仍走转正流程，由转正时同步
+                if column == 2:
+                    self._handle_temporary_customer_code_edit(row, column, item, order)
+                else:
+                    self._handle_temporary_product_edit(row, column, item, order)
                 return
 
         # 计算当前行对应的 item（考虑序号列和空行情况）
@@ -4003,6 +4009,57 @@ class MainWindow(QMainWindow):
         self._show_order_detail(order)
         return
     
+    def _handle_temporary_customer_code_edit(self, row, column, item, order):
+        """处理临时产品 Col 2 (客户产品编号) 的直接编辑
+        🔧 2026-06-29 新增：
+
+        业务背景：
+        - 导入订单时若 Excel 中没有 Model 列，后端自动生成临时编号 TP+YYMMDD+...
+        - 用户在订单详情中可以直接修改这个临时编号为真实客户产品编号
+        - 修改后会尝试匹配产品库，匹配成功则关联到正式产品（自动转正）
+        - 匹配不到则保留为临时产品，customer_code 字段更新为用户填入的编号
+        """
+        from PySide6.QtWidgets import QInputDialog, QLineEdit
+
+        pi_item_id = item.get('id')
+        if not pi_item_id:
+            QMessageBox.warning(self, "错误", "无法获取 PI item ID")
+            return
+
+        # 取当前 customer_code (优先 customer_model 兼容老逻辑)
+        current_code = (
+            item.get('customer_code')
+            or item.get('customer_model')
+            or item.get('customer_product_code')
+            or ''
+        )
+
+        new_code, ok = QInputDialog.getText(
+            self,
+            "编辑客户产品编号",
+            f"当前为临时编号: {current_code}\n请输入正确的客户产品编号:",
+            QLineEdit.EchoMode.Normal,
+            current_code,
+        )
+        if not ok or not new_code or new_code.strip() == current_code:
+            return
+
+        new_code = new_code.strip()
+        # 调用后端 update_pi_item
+        try:
+            result = self.api_client.update_pi_item(
+                pi_item_id,
+                {'customer_code': new_code}
+            )
+            if result and result.get('success', True):
+                QMessageBox.information(self, "成功", f"客户产品编号已更新为: {new_code}\n刷新后可查看最新数据。")
+                # 刷新订单详情
+                self._update_order_summary_view()
+            else:
+                QMessageBox.warning(self, "失败", f"更新失败: {result.get('message', '未知错误') if result else '无响应'}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"更新异常: {str(e)}")
+
     def _handle_temporary_product_edit(self, row, column, item, order):
         """处理临时产品的双击 - 任意列都打开转正对话框"""
         # 2026-06-14 变更：临时产品双击任意列均弹出转正 Dialog
