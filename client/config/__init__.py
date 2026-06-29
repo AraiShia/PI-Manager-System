@@ -31,10 +31,44 @@ else:
         APP_VERSION = "v1.0.0"
         UPDATE_SERVER_URL = "https://updateservice.wakabashia.tj.cn"
         AUTO_CHECK_UPDATE = True
-        # 2026-06-29 修复：兜底 Config 缺少 MACHINE_DEPT_MAP，
-        # 防止打包后 utils.machine_id 调用 Config.MACHINE_DEPT_MAP 时崩溃
+        # 2026-06-29 修复：兜底 Config 缺少 MACHINE_DEPT_MAP / DEPARTMENT_DB_CONFIG，
+        # 防止打包后 utils.machine_id 调用 Config.MACHINE_DEPT_MAP、
+        # auth.py 读取 Config.DEPARTMENT_DB_CONFIG 填充部门下拉时崩溃/为空
         MACHINE_DEPT_MAP = {}
-        DEPARTMENT_DB_CONFIG = {}
+        DEPARTMENT_DB_CONFIG = {
+            "S": {
+                "name": "S - 索英普",
+                "db_name": "pi_manager_s",
+                "db_host": "localhost",
+                "db_port": 3306,
+                "db_user": "pi_user",
+                "db_password": "pi@pass123"
+            },
+            "W": {
+                "name": "W - 维那",
+                "db_name": "pi_manager_w",
+                "db_host": "localhost",
+                "db_port": 3306,
+                "db_user": "pi_user",
+                "db_password": "pi@pass123"
+            },
+            "M": {
+                "name": "M - 马迪那",
+                "db_name": "pi_manager_m",
+                "db_host": "localhost",
+                "db_port": 3306,
+                "db_user": "pi_user",
+                "db_password": "pi@pass123"
+            },
+            "D": {
+                "name": "D - 银达",
+                "db_name": "pi_manager_d",
+                "db_host": "localhost",
+                "db_port": 3306,
+                "db_user": "pi_user",
+                "db_password": "pi@pass123"
+            }
+        }
         DB_HOST = "localhost"
         DB_PORT = 3306
         DB_USER = "pi_user"
