@@ -1571,9 +1571,13 @@ class MainWindow(QMainWindow):
         self.load_data()
 
     def _fetch_server_version(self) -> str:
-        """获取服务端版本号"""
+        """获取服务端版本号
+        🔧 2026-06-29 修复：api_client.get() 会自动在 endpoint 前添加 /api/ 前缀，
+        原调用 self.api_client.get("/api/version") 会导致请求 URL 变成 /api/api/version → 404。
+        改为不带 /api/ 前缀的端点（"version"），由 _build_url 拼成 /api/version。
+        """
         try:
-            resp = self.api_client.get("/api/version")
+            resp = self.api_client.get("version")
             if resp:
                 return resp.get("version", "未知")
         except Exception:

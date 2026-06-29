@@ -5,7 +5,7 @@ class Config:
     API_BASE_URL = os.environ.get("PI_API_URL", "http://localhost:8000")
 
     # 自动更新配置
-    APP_VERSION = "v1.0.0"  # 客户端版本号
+    APP_VERSION = "v1.0.0.24"  # 客户端版本号
     UPDATE_SERVER_URL = os.environ.get("PI_UPDATE_SERVER", "https://updateservice.wakabashia.tj.cn")  # 更新服务地址
     AUTO_CHECK_UPDATE = True  # 是否自动检查更新
 
