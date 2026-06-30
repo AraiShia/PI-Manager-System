@@ -154,7 +154,10 @@ def check_latest_version() -> Optional[Dict[str, Any]]:
     if not update_server:
         return None
 
+    # 🔧 2026-06-30 修复：API 要求版本号带 "v" 前缀
     current_version = Config.APP_VERSION
+    if not current_version.startswith("v"):
+        current_version = f"v{current_version}"
     url = f"{update_server}/api/version/client/{current_version}"
 
     try:
@@ -167,7 +170,12 @@ def check_latest_version() -> Optional[Dict[str, Any]]:
 
         latest_raw = data.get("latest", "")
         latest_version = _strip_version_prefix(latest_raw)
-        min_compatible = data.get("min_compatible", "") or ""
+
+        # 🔧 2026-06-30 修复：min_compatible 在 VersionCheckResponse 中不存在，
+        # 它在 VersionResponse.components.client.min_compatible 中
+        # 由于 check_version API 不返回 min_compatible，暂时设为空
+        # 后续可考虑同时调用 /api/version 获取全局信息来补充
+        min_compatible = ""
         is_blocked, block_message = _check_min_compatible(current_version, min_compatible)
 
         changelog = data.get("changelog", "")
