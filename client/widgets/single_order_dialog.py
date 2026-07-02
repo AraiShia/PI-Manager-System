@@ -68,7 +68,7 @@ class SingleOrderDialog(QDialog):
         self._captured_product_data = None  # supplement 模式下保存的产品数据
 
         self.setWindowTitle("补充单条产品" if mode == 'supplement' else "单条新增订单")
-        self.setMinimumSize(500, 480)
+        self.setMinimumSize(500, 400)
         self.init_ui()
         self.load_customers_async()
 
@@ -129,10 +129,6 @@ class SingleOrderDialog(QDialog):
         self.oe_number_input.setPlaceholderText("OE号")
         form_layout.addRow("OE号:", self.oe_number_input)
         
-        self.product_desc_input = QLineEdit()
-        self.product_desc_input.setPlaceholderText("产品描述")
-        form_layout.addRow("产品描述:", self.product_desc_input)
-        
         self.quantity_spin = QSpinBox()
         self.quantity_spin.setMinimum(1)
         self.quantity_spin.setMaximum(999999)
@@ -151,15 +147,6 @@ class SingleOrderDialog(QDialog):
         self.amount_label = QLabel("$ 0.00")
         self.amount_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         form_layout.addRow("合计金额:", self.amount_label)
-        
-        self.delivery_date_edit = QDateEdit()
-        self.delivery_date_edit.setDate(QDate.currentDate().addDays(30))
-        self.delivery_date_edit.setCalendarPopup(True)
-        form_layout.addRow("交货日期:", self.delivery_date_edit)
-        
-        self.remark_input = QLineEdit()
-        self.remark_input.setPlaceholderText("备注（可选）")
-        form_layout.addRow("备注:", self.remark_input)
         
         layout.addLayout(form_layout)
         
@@ -279,7 +266,7 @@ class SingleOrderDialog(QDialog):
         self.selected_product_label.setStyleSheet("color: #10b981; font-weight: bold;")
         
         self.oe_number_input.setText(product.get('oe_number', ''))
-        self.product_desc_input.setText(product.get('detail_desc', ''))
+        self.customer_code_input.setText(product.get('customer_code', ''))
         
         if product.get('unit_price'):
             self.unit_price_spin.setValue(float(product.get('unit_price')))
@@ -307,14 +294,17 @@ class SingleOrderDialog(QDialog):
             'product_id': product_id,
             'customer_code': self.customer_code_input.text(),
             'oe_number': self.oe_number_input.text(),
-            'detail_desc': self.product_desc_input.text(),
             'quantity': self.quantity_spin.value(),
             'unit_price': float(self.unit_price_spin.value()),
-            'delivery_date': self.delivery_date_edit.date().toString("yyyy-MM-dd"),
-            'remark': self.remark_input.text()
         }
 
-        # 2026-06-11 补充模式：捕获产品数据后直接 accept，由调用方写入预览
+        if not product_data['customer_code']:
+            QMessageBox.warning(self, "提示", "请输入客户产品编号")
+            return
+        if not product_data['oe_number']:
+            QMessageBox.warning(self, "提示", "请输入OE号")
+            return
+
         if self._mode == 'supplement':
             self._captured_product_data = product_data
             self.accept()
