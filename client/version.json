@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0.28",
-  "build_date": "2026-06-29",
+  "version": "1.0.0.29",
+  "build_date": "2026-07-02",
   "repo": "AraiShia/pi-manager-update-service",
   "update_check_url": "https://api.github.com/repos/AraiShia/pi-manager-update-service/releases/latest"
 }
