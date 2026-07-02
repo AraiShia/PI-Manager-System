@@ -252,19 +252,24 @@ class ApiClient:
         return self.delete(f"/products/{product_id}/schemes/{scheme_id}")
     
     def search_products(self, keyword: str = "", category_id: int = None, category_code: str = None, status: int = None, customer_id: int = None) -> List[Dict]:
+        # 2026-07-02 修复：产品管理已从 PrdProduct 迁移到 PrdCustomerProduct，
+        # /products/search 端点已废弃，改用 /customer-products 端点。
         params = {}
         if keyword:
-            params["keyword"] = keyword
+            params["search"] = keyword
         # 2026-06-14 前端下拉框存的是 code 字符串（如 'C01'），不能用 category_id (int) 路径
         if category_code is not None:
             params["category_code"] = category_code
         elif category_id is not None:
             params["category_id"] = category_id
-        if status is not None:
-            params["status"] = status
         if customer_id is not None:
             params["customer_id"] = customer_id
-        return self.get("/products/search", params=params)
+        # 前端产品表格不分页，单次拉取足够数据
+        params["page_size"] = 500
+        resp = self.get("/customer-products", params=params)
+        if isinstance(resp, dict):
+            return resp.get("items", [])
+        return resp or []
 
     def create_product(self, data: Dict) -> Dict:
         return self.post("/products", data)

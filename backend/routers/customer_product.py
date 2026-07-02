@@ -133,6 +133,7 @@ def _build_response(customer_product, db: Session):
 def list_customer_products(
     customer_id: Optional[int] = Query(None, description="客户ID"),
     search: Optional[str] = Query(None, description="搜索关键词"),
+    category_code: Optional[str] = Query(None, description="类目代码"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=1000),
     db: Session = Depends(get_db)
@@ -143,6 +144,7 @@ def list_customer_products(
         db,
         customer_id=customer_id,
         search=search,
+        category_code=category_code,
         skip=skip,
         limit=page_size,
     )

@@ -198,6 +198,7 @@ def get_customer_products(
     db: Session,
     customer_id: Optional[int] = None,
     search: Optional[str] = None,
+    category_code: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
 ) -> Tuple[List[PrdCustomerProduct], int]:
@@ -206,7 +207,7 @@ def get_customer_products(
     logger = logging.getLogger(__name__)
 
     logger.info(f"[CP查询-DEBUG] ===== get_customer_products 开始 =====")
-    logger.info(f"[CP查询-DEBUG] 查询参数: customer_id={customer_id}, search={search!r}, skip={skip}, limit={limit}")
+    logger.info(f"[CP查询-DEBUG] 查询参数: customer_id={customer_id}, search={search!r}, category_code={category_code!r}, skip={skip}, limit={limit}")
 
     query = db.query(PrdCustomerProduct).filter(PrdCustomerProduct.is_active == True)
     logger.info(f"[CP查询-DEBUG] 基础查询: is_active=True")
@@ -214,6 +215,10 @@ def get_customer_products(
     if customer_id:
         query = query.filter(PrdCustomerProduct.customer_id == customer_id)
         logger.info(f"[CP查询-DEBUG] 添加筛选: customer_id={customer_id}")
+
+    if category_code:
+        query = query.filter(PrdCustomerProduct.category_id == category_code)
+        logger.info(f"[CP查询-DEBUG] 添加筛选: category_code={category_code}")
 
     if search:
         # 搜索产品名称、客户型号、编号、OE号
