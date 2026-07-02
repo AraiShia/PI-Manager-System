@@ -336,6 +336,18 @@ class SingleOrderDialog(QDialog):
             QMessageBox.warning(self, "提示", "请输入OE号")
             return
 
+        # 未匹配到已有产品时二次确认
+        if not product_id and (product_data['customer_model'] or product_data['customer_code']):
+            reply = QMessageBox.question(
+                self,
+                "未匹配到产品",
+                "未匹配到已有产品，是否继续添加新商品？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         if self._mode == 'supplement':
             self._captured_product_data = product_data
             self.accept()
