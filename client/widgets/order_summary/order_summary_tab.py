@@ -152,8 +152,8 @@ class OrderSummaryTab(QWidget):
         toolbar.addStretch()
         
         # 新增按钮
-        import_btn = QPushButton("📥 新增")
-        import_btn.setStyleSheet("""
+        self._import_btn = QPushButton("📥 新增")
+        self._import_btn.setStyleSheet("""
             QPushButton {
                 background-color: #6366f1;
                 color: white;
@@ -163,8 +163,8 @@ class OrderSummaryTab(QWidget):
             }
             QPushButton:hover { background-color: #4f46e5; }
         """)
-        import_btn.clicked.connect(self._on_import_clicked)
-        toolbar.addWidget(import_btn)
+        self._import_btn.clicked.connect(self._on_import_clicked)
+        toolbar.addWidget(self._import_btn)
         
         # 刷新按钮
         self._refresh_btn = QPushButton("🔄 刷新")
@@ -412,8 +412,9 @@ class OrderSummaryTab(QWidget):
     
     def _update_view(self):
         """更新视图显示 - 双模式切换"""
-        # 模式一（列表）：显示刷新/导出；模式二（详情）：隐藏
+        # 模式一（列表）：显示刷新/导出/新增；模式二（详情）：隐藏
         is_list = self._view_mode == "list"
+        self._import_btn.setVisible(is_list)
         self._refresh_btn.setVisible(is_list)
         self._export_btn.setVisible(is_list)
         self._shipment_btn.setVisible(is_list)
