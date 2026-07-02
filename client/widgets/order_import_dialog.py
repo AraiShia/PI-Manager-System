@@ -517,7 +517,6 @@ class OrderImportDialog(QDialog):
             self.preview_data = {'headers': [], 'rows': [], 'total': 0}
 
         # 添加到 preview_data 中（用于导入时获取数据）
-        product_data['is_temp'] = True  # 标记为临时产品
         self.preview_data['rows'].append(product_data)
         self.preview_data['total'] = len(self.preview_data['rows'])
 
@@ -545,20 +544,15 @@ class OrderImportDialog(QDialog):
         price_str = f"${price:.2f}" if price else ''
         self.preview_table.setItem(row_idx, 5, QTableWidgetItem(price_str))
 
-        # 状态标识
-        status = '临时' if product_data.get('is_temporary') else '正式'
-        status_item = QTableWidgetItem(status)
-        if product_data.get('is_temporary'):
-            status_item.setBackground(QColor("#fef3c7"))  # 黄色背景标记临时产品
+        # 状态标识（均为正式产品）
+        status_item = QTableWidgetItem('正式')
         self.preview_table.setItem(row_idx, 6, status_item)
 
         # 更新状态标签
         total_rows = self.preview_table.rowCount()
-        temp_count = sum(1 for r in range(total_rows)
-                        if self.preview_table.item(r, 6) and self.preview_table.item(r, 6).text() == '临时')
 
         self.preview_status_label.setText(
-            f"共 {total_rows} 行数据（手动添加 {total_rows} 条，其中临时产品 {temp_count} 条）"
+            f"共 {total_rows} 行数据（手动添加 {total_rows} 条）"
         )
 
         # 启用导入按钮
@@ -791,20 +785,8 @@ class OrderImportDialog(QDialog):
             print(f"[6.2.23] 重过滤失败: {e}")
     
     def _highlight_temp_rows(self):
-        """[6.2.1] 高亮临时商品行（黄色背景）"""
-        for row_idx in range(self.preview_table.rowCount()):
-            # 检查第6列（状态列）是否包含"临时"
-            status_item = self.preview_table.item(row_idx, 6)
-            is_temp = status_item and '临时' in status_item.text()
-
-            for col_idx in range(self.preview_table.columnCount()):
-                cell_item = self.preview_table.item(row_idx, col_idx)
-                if cell_item:
-                    if is_temp:
-                        cell_item.setBackground(QColor("#fef3c7"))
-                    else:
-                        # 清除背景（用透明色，QColor() 默认是黑色，会变全黑）
-                        cell_item.setData(Qt.BackgroundRole, None)
+        """[6.2.1] 高亮临时商品行（已废弃，所有商品均为正式）"""
+        pass
 
     def _on_preview_context_menu(self, pos):
         """预览表格右键菜单：支持删除行"""
@@ -990,7 +972,7 @@ class OrderImportDialog(QDialog):
         self.match_results = results
 
         matched_count = 0
-        created_temp_count = 0
+        created_count = 0
         reused_count = 0
 
         for idx, result in enumerate(results):
@@ -1013,16 +995,14 @@ class OrderImportDialog(QDialog):
                 else:
                     status_text = f"~ 名称匹配 ({match_score}%)"
                     status_color = QColor('#fef3c7')  # 黄
-            elif status == "created_temp":
-                created_temp_count += 1
+            elif status == "created":
+                created_count += 1
                 product = result.get('product') or {}
-                status_text = f"+ 新建临时 (Model={product.get('customer_model', '-')})"
+                status_text = f"+ 新建正式 (Model={product.get('customer_model', '-')})"
                 status_color = QColor('#dbeafe')  # 蓝
             elif status == "reused_existing":
                 reused_count += 1
-                product = result.get('product') or {}
-                mark = "(已转正)" if not product.get('is_temporary') else "(temp)"
-                status_text = f"↻ 复用已有 {mark}"
+                status_text = "↻ 复用已有"
                 status_color = QColor('#e0f2fe')  # 青
             else:
                 status_text = "✗ 未匹配"
@@ -1041,7 +1021,7 @@ class OrderImportDialog(QDialog):
         # 摘要更新
         summary = (
             f"匹配完成：✓ {matched_count} 精确匹配，"
-            f"+ {created_temp_count} 新建临时，"
+            f"+ {created_count} 新建正式，"
             f"↻ {reused_count} 复用"
         )
         self.match_summary_label.setText(summary)
@@ -1052,7 +1032,7 @@ class OrderImportDialog(QDialog):
         QMessageBox.information(
             self,
             "匹配完成",
-            f"匹配完成！\n精确匹配: {matched_count}\n新建临时: {created_temp_count}\n复用已有: {reused_count}",
+            f"匹配完成！\n精确匹配: {matched_count}\n新建正式: {created_count}\n复用已有: {reused_count}",
         )
     
     @Slot(str)
@@ -1276,12 +1256,12 @@ class OrderImportDialog(QDialog):
                 if isinstance(row, dict):
                     payload_items.append(row)
                 else:
-                    payload_items.append({'raw': list(row), 'is_temp': True})
+                    payload_items.append({'raw': list(row)})
 
             # 调用后端 API 追加商品到订单
             response = self.api_client.post(
                 f"/orders/{self.order_id}/supplement-items",
-                json={'items': payload_items, 'is_temp': True}
+                json={'items': payload_items}
             )
             
             if response and response.get('success'):

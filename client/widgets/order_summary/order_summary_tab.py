@@ -281,7 +281,7 @@ class OrderSummaryTab(QWidget):
         self._detail_panel.backRequested.connect(self._on_back_to_list)
         # 2026-06-23：正式PI检查完成 → 启用/禁用『全部入库』按钮
         self._detail_panel.formalRecordChecked.connect(self._on_formal_record_checked)
-        # 2026-06-23：保存正式纪录成功后刷新订单详情，确保临时产品转正后的新名称立即显示
+        # 2026-06-23：保存正式纪录成功后刷新订单详情
         self._detail_panel.formalRecordSaved.connect(self._on_formal_record_saved)
 
     def _on_formal_record_saved(self):
@@ -323,15 +323,6 @@ class OrderSummaryTab(QWidget):
 
         if items_from_order:
             # ✅ 传入order对象中已有items（刚保存后已更新），直接使用
-            # 修复 is_temporary 字段类型
-            for item in items_from_order:
-                if 'is_temporary' not in item or item.get('is_temporary') is None:
-                    if not item.get('product_id') or item.get('product_id') == 0:
-                        item['is_temporary'] = True
-                    else:
-                        item['is_temporary'] = False
-                item['is_temporary'] = bool(item.get('is_temporary'))
-
             self._detail_panel.show_order_detail(order, items_from_order)
 
             order_no = order.get('pi_no', order.get('order_no', ''))
@@ -363,18 +354,7 @@ class OrderSummaryTab(QWidget):
                 try:
                     detail = self.api_client.get_pi_detail(order_id)
                     final_items = detail.get('items', []) if detail else []
-                    # 2026-06-12 修复：优先使用后端返回的 is_temporary 字段，避免覆盖
-                    for item in final_items:
-                        # 优先使用后端字段
-                        if 'is_temporary' not in item or item.get('is_temporary') is None:
-                            # 后端没返回时才 fallback 到 product_id 判断
-                            if not item.get('product_id') or item.get('product_id') == 0:
-                                item['is_temporary'] = True
-                            else:
-                                item['is_temporary'] = False
-                        # 转成 bool 防止后端返回 0/1 整数
-                        item['is_temporary'] = bool(item.get('is_temporary'))
-                    
+
                     self._detail_panel.show_order_detail(order, final_items)
                     item_count = len(final_items)
                     customer_name = order.get('customer_name', '')

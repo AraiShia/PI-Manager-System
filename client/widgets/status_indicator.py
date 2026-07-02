@@ -161,7 +161,6 @@ class StatusIndicatorManager:
         
         Args:
             status_dict: dict, 产品状态字典，包含以下键：
-                - is_temp: bool, 是否临时产品
                 - is_purchased: bool, 是否已采购
                 - has_stock: bool, 是否有库存
                 - has_invoice: bool, 是否有发票

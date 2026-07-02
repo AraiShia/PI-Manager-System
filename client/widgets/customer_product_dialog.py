@@ -349,7 +349,6 @@ class SubImageWidget(QWidget):
 
 class CustomerProductDialog(QDialog):
     """客户产品编辑对话框"""
-    # 2026-06-12 修复：添加 product_confirmed 信号（用于通知转正成功）
     # 2026-06-16 修复：信号改为 (bool, dict)，传完整 API 返回值（含 customer_remark / price_usd 等）
     product_confirmed = Signal(bool, dict)  # (success: bool, updated_product: dict)
 
@@ -358,7 +357,8 @@ class CustomerProductDialog(QDialog):
         self.api_client = api_client
         self.product = product or {}
         self.is_edit = bool(product and product.get('id'))
-        self.mode = mode
+        # 2026-07-02：临时产品转正功能已去除，confirm_temp 模式不再支持
+        self.mode = "edit" if mode == "confirm_temp" else mode
         self._preset_customer_id = None
         
         self.customers = []
@@ -368,9 +368,7 @@ class CustomerProductDialog(QDialog):
         self.sub_images = []
         self.main_image_url = None
         
-        if self.mode == "confirm_temp":
-            self.setWindowTitle("转正临时产品")
-        elif self.is_edit:
+        if self.is_edit:
             self.setWindowTitle("编辑客户产品")
         else:
             self.setWindowTitle("新增客户产品")
@@ -421,9 +419,7 @@ class CustomerProductDialog(QDialog):
         
         if self.is_edit:
             product_id = self.product.get('id')
-            # 2026-06-12 修复：临时产品不需要调用 codes/oes 接口
-            is_temp = self.product.get('is_temporary', False)
-            if product_id and not is_temp:
+            if product_id:
                 try:
                     codes_resp = self.api_client.get(f"/customer-products/{product_id}/codes")
                     if codes_resp and isinstance(codes_resp, list):
@@ -454,14 +450,6 @@ class CustomerProductDialog(QDialog):
                     except:
                         self.sub_images = []
         
-        if self.mode == "confirm_temp" and not self.is_edit:
-            code_val = self.product.get('customer_product_code', '') or ''
-            if code_val and not any(c.get('product_code') == code_val for c in self.codes):
-                self.codes.append({'id': None, 'customer_product_id': None, 'product_code': code_val, 'is_primary': True, 'remark': ''})
-            oe_val = self.product.get('oe_number', '') or ''
-            if oe_val and not any(o.get('oe_number') == oe_val for o in self.oes):
-                self.oes.append({'id': None, 'customer_product_id': None, 'oe_number': oe_val, 'is_primary': True, 'remark': ''})
-        
         QApplication.restoreOverrideCursor()
         
         self.init_ui()
@@ -489,21 +477,8 @@ class CustomerProductDialog(QDialog):
         for c in self.customers:
             self.customer_combo.addItem(c.get('customer_name', ''), c.get('id'))
         
-        # 🔧 2026-06-29 修复"转正经常丢失客户"问题
-        # 保持锁定防止误操作，但标记客户查找状态，save() 时检查并弹出警告
-        self._customer_lookup_failed = False  # 初始化标记
-        if self.mode == "confirm_temp" and self._preset_customer_id:
-            found = False
-            for i in range(self.customer_combo.count()):
-                if self.customer_combo.itemData(i) == self._preset_customer_id:
-                    self.customer_combo.setCurrentIndex(i)
-                    found = True
-                    break
-            self.customer_combo.setEnabled(False)  # 锁定防止误操作
-            if not found:
-                self._customer_lookup_failed = True  # 标记查找失败，save() 时弹警告
-                print(f"[WARN] 转正时客户ID={self._preset_customer_id} 不在客户列表中（客户列表共 {len(self.customers)} 个），将阻止提交")
-        elif self._preset_customer_id:
+        # 预设客户时自动选中
+        if self._preset_customer_id:
             for i in range(self.customer_combo.count()):
                 if self.customer_combo.itemData(i) == self._preset_customer_id:
                     self.customer_combo.setCurrentIndex(i)
@@ -525,12 +500,7 @@ class CustomerProductDialog(QDialog):
         
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("请输入产品名称")
-        if self.mode == "confirm_temp":
-            temp_name = self.product.get('detail_desc', '') or self.product.get('product_name', '')
-            if temp_name and temp_name.startswith('临时导入产品'):
-                temp_name = ''
-            self.name_input.setText(temp_name)
-        elif self.is_edit:
+        if self.is_edit:
             self.name_input.setText(self.product.get('product_name', ''))
         basic_layout.addRow("产品名称:", self.name_input)
         
@@ -552,8 +522,8 @@ class CustomerProductDialog(QDialog):
         
         basic_layout.addRow("产品类目:", category_widget_layout)
         
-        # 转正/编辑模式下，设置已选择的类别
-        if (self.mode == "confirm_temp" or self.is_edit) and self.product.get('category_id'):
+        # 编辑模式下，设置已选择的类别
+        if self.is_edit and self.product.get('category_id'):
             category_code = self.product.get('category_id')
             # 查找父类别
             # 2026-06-23 修复：后端 Pydantic ProductCategoryResponse 序列化的字段是 parent_id
@@ -587,37 +557,16 @@ class CustomerProductDialog(QDialog):
                         self.category_filter_level2.setCurrentIndex(i)
                         break
             
-            # 转正模式下锁定类别下拉框
-            if self.mode == "confirm_temp":
-                self.category_filter_level1.setEnabled(False)
-                self.category_filter_level2.setEnabled(False)
         
         self.model_input = QLineEdit()
         self.model_input.setPlaceholderText("默认等于主OE号")
-        if self.mode == "confirm_temp":
-            temp_data = self._parse_temp_data()
-            original_model = temp_data.get('model') or ''
-            model_val = original_model or self.product.get('customer_code') or ''
-            self.model_input.setText(model_val)
-            # 🔧 2026-06-29 修改：只有当 Excel 原本缺失 Model 时才允许编辑
-            # - temp_data.model 有值 → Excel 原本有 Model，锁定只读
-            # - temp_data.model 为空 → Excel 原本无 Model，自动生成 TP 编号，允许编辑
-            if original_model:
-                self.model_input.setReadOnly(True)  # 有原始 Model → 锁定
-                self.model_input.setStyleSheet("background-color: #f0f0f0; color: #666666;")
-            else:
-                self.model_input.setReadOnly(False)  # 无原始 Model → 允许编辑
-                self.model_input.setStyleSheet("")
-                self.model_input.setPlaceholderText("请输入客户产品编号")
-        elif self.is_edit:
+        if self.is_edit:
             self.model_input.setText(self.product.get('customer_model', ''))
         basic_layout.addRow("客户型号:", self.model_input)
         
         self.color_input = QLineEdit()
         self.color_input.setPlaceholderText("产品颜色")
-        if self.mode == "confirm_temp":
-            self.color_input.setText(self.product.get('color', '') or '')
-        elif self.is_edit:
+        if self.is_edit:
             self.color_input.setText(self.product.get('color', ''))
         basic_layout.addRow("颜色:", self.color_input)
         
@@ -744,9 +693,7 @@ class CustomerProductDialog(QDialog):
         self.remark_input = QTextEdit()
         self.remark_input.setPlaceholderText("客户特殊要求...")
         self.remark_input.setMaximumHeight(80)
-        if self.mode == "confirm_temp":
-            self.remark_input.setText(self.product.get('customer_remark', '') or self.product.get('remark', '') or '')
-        elif self.is_edit:
+        if self.is_edit:
             self.remark_input.setText(self.product.get('customer_remark', ''))
         remark_layout.addWidget(self.remark_input)
         remark_group.setLayout(remark_layout)
@@ -760,11 +707,7 @@ class CustomerProductDialog(QDialog):
         self.price_usd_input = QLineEdit()
         self.price_usd_input.setPlaceholderText("0.00")
         self.price_usd_input.setFixedWidth(100)
-        if self.mode == "confirm_temp":
-            val = self.product.get('unit_price', '') or self.product.get('price_usd', '')
-            if val:
-                self.price_usd_input.setText(str(val))
-        elif self.is_edit:
+        if self.is_edit:
             self.price_usd_input.setText(str(self.product.get('price_usd') or ''))
         price_layout.addWidget(self.price_usd_input)
         
@@ -774,11 +717,7 @@ class CustomerProductDialog(QDialog):
         self.price_rmb_input = QLineEdit()
         self.price_rmb_input.setPlaceholderText("0.00")
         self.price_rmb_input.setFixedWidth(100)
-        if self.mode == "confirm_temp":
-            val = self.product.get('price_rmb', '')
-            if val:
-                self.price_rmb_input.setText(str(val))
-        elif self.is_edit:
+        if self.is_edit:
             self.price_rmb_input.setText(str(self.product.get('price_rmb') or ''))
         price_layout.addWidget(self.price_rmb_input)
         
@@ -798,7 +737,7 @@ class CustomerProductDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(cancel_btn)
         
-        save_btn = QPushButton("✅ 确认转正" if self.mode == "confirm_temp" else "💾 保存")
+        save_btn = QPushButton("💾 保存")
         save_btn.setFixedWidth(100)
         save_btn.setStyleSheet("""
             QPushButton {
@@ -1029,33 +968,7 @@ class CustomerProductDialog(QDialog):
         else:
             print(f"[副图] 上传失败: {message}")
     
-    def _parse_temp_data(self):
-        try:
-            import json
-            raw = self.product.get('temp_data')
-            if raw:
-                if isinstance(raw, str):
-                    return json.loads(raw)
-                return raw
-        except Exception:
-            pass
-        return {}
-
     def save(self):
-        # 🔧 2026-06-29 修复"转正经常丢失客户"问题
-        # 如果客户列表为空/找不到匹配客户，阻止提交并提示用户
-        if getattr(self, '_customer_lookup_failed', False):
-            QMessageBox.critical(
-                self,
-                "客户列表加载异常",
-                f"无法找到订单对应的客户（客户ID={self._preset_customer_id}）\n\n"
-                f"可能原因：\n"
-                f"1. 客户列表正在加载中，请稍后再试\n"
-                f"2. 服务器连接异常\n\n"
-                f"请关闭此窗口，等待客户列表加载完成后重试。"
-            )
-            return
-
         customer_id = self.customer_combo.currentData()
         if not customer_id:
             QMessageBox.warning(self, "警告", "请选择客户")
@@ -1064,112 +977,6 @@ class CustomerProductDialog(QDialog):
         product_name = self.name_input.text().strip()
         if not product_name:
             QMessageBox.warning(self, "警告", "请输入产品名称")
-            return
-        
-        if self.mode == "confirm_temp":
-            category_code = self.category_filter_level2.currentData()
-            if not category_code or category_code == 0:
-                QMessageBox.warning(self, "警告", "请选择产品类目")
-                return
-
-            # [DEBUG] 打印转正前的状态
-            print(f"[转正-前端-DEBUG] ===== 开始准备转正数据 =====")
-            print(f"[转正-前端-DEBUG] product_id={self.product['id']}")
-            print(f"[转正-前端-DEBUG] product.is_temporary={self.product.get('is_temporary')}")
-            print(f"[转正-前端-DEBUG] product.product_code={self.product.get('product_code')}")
-            print(f"[转正-前端-DEBUG] product.oe_number={self.product.get('oe_number')}")
-
-            customer_id = self.customer_combo.currentData()
-            print(f"[转正-前端-DEBUG] customer_combo currentData()={customer_id} (type={type(customer_id).__name__})")
-            print(f"[转正-前端-DEBUG] customer_combo currentIndex={self.customer_combo.currentIndex()}, count={self.customer_combo.count()}")
-            # 打印所有下拉项
-            for i in range(self.customer_combo.count()):
-                print(f"[转正-前端-DEBUG]   combo[{i}] = {self.customer_combo.itemText(i)} (data={self.customer_combo.itemData(i)})")
-
-            if self.customer_combo.currentIndex() == 0:
-                print(f"[转正-前端-ERROR] !!! 客户下拉框未选择（currentIndex=0），customer_id={customer_id}")
-                QMessageBox.warning(self, "警告", "请选择客户")
-                return
-
-            if not customer_id:
-                print(f"[转正-前端-ERROR] !!! customer_id 为空或 None/0")
-                QMessageBox.warning(self, "警告", "请选择客户")
-                return
-
-            # 打印所有表单字段
-            print(f"[转正-前端-DEBUG] ===== 表单字段值 =====")
-            print(f"[转正-前端-DEBUG] product_name={product_name!r}")
-            print(f"[转正-前端-DEBUG] model_input={self.model_input.text()!r}")
-            print(f"[转正-前端-DEBUG] color_input={self.color_input.text()!r}")
-            print(f"[转正-前端-DEBUG] remark_input={self.remark_input.toPlainText()!r}")
-            print(f"[转正-前端-DEBUG] price_usd_input={self.price_usd_input.text()!r}")
-            print(f"[转正-前端-DEBUG] price_rmb_input={self.price_rmb_input.text()!r}")
-            print(f"[转正-前端-DEBUG] category_code={category_code!r}")
-            print(f"[转正-前端-DEBUG] main_image_url={getattr(self, 'main_image_url', None)!r}")
-            if hasattr(self, 'sub_image_widget'):
-                print(f"[转正-前端-DEBUG] sub_images={self.sub_image_widget.get_images()}")
-
-            confirm_data = {
-                "product_code": f"P-{self.product.get('id', 0):05d}",
-                "product_name": product_name,  # 2026-06-23 修复：同步更新 product_name
-                # 原代码只把"产品名称"输入框的值放到 detail_desc，product_name 字段仍是 "临时产品-XXX"，
-                # 再次打开产品编辑 Dialog 时 product_name 仍显示 "临时产品-XXX" → 用户感觉"产品名称不对应"
-                "detail_desc": product_name,  # detail_desc 也保留（订单详情表读此字段显示"产品名称"）
-                "oe_number": self.product.get('oe_number', ''),
-                "brand": self.product.get('brand', ''),
-                "category_id": category_code,
-                "dept_id": self.product.get('dept_id', 'P01'),
-                "customer_id": customer_id,  # 传递客户ID，后端用于创建 PrdCustomerProduct
-                "price_usd": float(self.price_usd_input.text()) if self.price_usd_input.text() else None,
-                "price_rmb": float(self.price_rmb_input.text()) if self.price_rmb_input.text() else None,
-                "default_image_url": getattr(self, 'main_image_url', None),  # 2026-06-15 修复：保存产品图片
-                "sub_images": json.dumps(self.sub_image_widget.get_images()) if hasattr(self, 'sub_image_widget') else None,  # 副图
-                "customer_model": self.model_input.text().strip(),  # 客户型号
-                "color": self.color_input.text().strip(),  # 颜色
-                "customer_remark": self.remark_input.toPlainText().strip(),  # 客户备注
-            }
-
-            # 2026-06-23 修复：转正时把用户填的多个 OE / 客户编号 一并传给后端
-            # 原代码只传 oe_number (主OE)，TESTOE1/TESTOE2 等用户加的 OE 全部丢失
-            # 后端 update_and_confirm_temporary 已经支持 oe_numbers / customer_codes 列表
-            oe_numbers_list = [o.get('oe_number') for o in self.oes if o.get('oe_number')]
-            if oe_numbers_list:
-                confirm_data['oe_numbers'] = oe_numbers_list
-            customer_codes_list = [c.get('product_code') for c in self.codes if c.get('product_code')]
-            if customer_codes_list:
-                confirm_data['customer_codes'] = customer_codes_list
-
-            # [DEBUG] 打印完整的转正请求数据
-            print(f"[转正-前端-DEBUG] ===== 确认转正请求 confirm_data =====")
-            print(f"[转正-前端-DEBUG] {json.dumps(confirm_data, ensure_ascii=False, indent=2)}")
-            print(f"[转正-前端-DEBUG] 准备调用 API: confirm_temporary_product(product_id={self.product['id']}, data=...)")
-
-            try:
-                print(f"[转正-前端-DEBUG] >>> 调用 API 开始 <<<")
-                result = self.api_client.confirm_temporary_product(self.product['id'], confirm_data)
-                print(f"[转正-前端-DEBUG] >>> API 调用成功 <<<")
-                print(f"[转正-前端-DEBUG] API 返回结果类型: {type(result).__name__}")
-                if isinstance(result, dict):
-                    print(f"[转正-前端-DEBUG] API 返回结果 keys: {list(result.keys())}")
-                    print(f"[转正-前端-DEBUG] API 返回 is_temporary: {result.get('is_temporary')}")
-                    print(f"[转正-前端-DEBUG] API 返回 status: {result.get('status')}")
-                    print(f"[转正-前端-DEBUG] API 返回结果: {json.dumps(result, ensure_ascii=False)}")
-
-                # 2026-06-12 修复：使用 product_confirmed 信号（Signal(bool, int)）
-                # 而不是 QDialog.finished（Signal(int)，只接受 1 个参数）
-                # 2026-06-16 修复：传 API 返回的完整字典（含 customer_remark 等字段）
-                print(f"[转正-前端-DEBUG] 发射 product_confirmed 信号 (True, product_id={result.get('id')})")
-                self.product_confirmed.emit(True, result)
-                QMessageBox.information(self, "成功", "转正成功")
-                print(f"[转正-前端-DEBUG] >>> 转正流程完成，关闭对话框 <<<")
-                self.accept()
-            except Exception as e:
-                print(f"[转正-前端-ERROR] ❌ API 调用异常: {str(e)}")
-                import traceback
-                print(f"[转正-前端-ERROR] 堆栈跟踪:\n{traceback.format_exc()}")
-                # 失败也发射信号，传入 (False, {})
-                self.product_confirmed.emit(False, {})
-                QMessageBox.warning(self, "错误", f"转正失败: {e}")
             return
         
         data = {

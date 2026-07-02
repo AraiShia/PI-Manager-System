@@ -321,7 +321,7 @@ class PurchaseDialog(QDialog):
 
             for i, item in enumerate(self.items):
                 # 第 0 列：产品名称
-                name_item = QTableWidgetItem(item.get('product_name', item.get('detail_desc', '临时产品')))
+                name_item = QTableWidgetItem(item.get('product_name', item.get('detail_desc', '未命名产品')))
                 name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.product_table.setItem(i, COL_IDX_NAME, name_item)
 
@@ -378,7 +378,7 @@ class PurchaseDialog(QDialog):
         if not self.current_item:
             return
         
-        info_text = f"当前产品: {self.current_item.get('product_name', '临时产品')} | 型号: {self.current_item.get('model', 'N/A')} | 数量: {self.current_item.get('quantity', 0)}"
+        info_text = f"当前产品: {self.current_item.get('product_name', '未命名产品')} | 型号: {self.current_item.get('model', 'N/A')} | 数量: {self.current_item.get('quantity', 0)}"
         
         # 如果存在产品信息标签则更新，不存在则创建
         if hasattr(self, 'product_info_label'):
@@ -431,7 +431,7 @@ class PurchaseDialog(QDialog):
         # 更新产品显示
         self._update_product_display()
         
-        print(f"[PurchaseDialog] 产品切换: {self.current_item.get('product_name', '临时产品')}")
+        print(f"[PurchaseDialog] 产品切换: {self.current_item.get('product_name', '未命名产品')}")
     
     def _reset_fee_fields(self):
         """重置费用字段"""
@@ -964,7 +964,7 @@ class PurchaseDialog(QDialog):
         finally:
             self._loading_top_form = False
 
-        print(f"[PurchaseDialog] 产品切换到 row={row}: {self.current_item.get('product_name', '临时产品')}")
+        print(f"[PurchaseDialog] 产品切换到 row={row}: {self.current_item.get('product_name', '未命名产品')}")
 
     def _load_latest_for_all_rows(self):
         """2026-06-09 任务 9/15：批量加载所有行的最近采购记录
@@ -1057,7 +1057,7 @@ class PurchaseDialog(QDialog):
             return
         product_id = item.get('product_id')
         if not product_id:
-            print(f"[PurchaseDialog] row={row} 无 product_id（可能是临时产品），跳过单价回退")
+            print(f"[PurchaseDialog] row={row} 无 product_id，跳过单价回退")
             return
         try:
             product = self.api_client.get_customer_product_by_id(product_id)

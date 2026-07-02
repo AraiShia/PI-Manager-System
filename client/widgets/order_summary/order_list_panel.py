@@ -239,11 +239,9 @@ class OrderListPanel(QWidget):
         view_history.triggered.connect(lambda: self._on_view_history(pi_id, pi_no))
         
         # 2026-06-15 需求：删除订单（仅删点中行，与多选无关）
-        # 业务规则：仅"含临时产品（未全部转正）"的 PI 允许删除
-        # 已保存为正式 PI（无临时产品项）→ 不显示删除项
-        if order.get("has_temporary_items"):
-            delete_action = menu.addAction("删除订单")
-            delete_action.triggered.connect(lambda: self._on_delete_order(pi_id, row, pi_no))
+        # 2026-07-02：临时产品功能已去除，所有 PI 均可删除
+        delete_action = menu.addAction("删除订单")
+        delete_action.triggered.connect(lambda: self._on_delete_order(pi_id, row, pi_no))
 
         # 缺货标记切换
         current_storage = order.get('storage_status', '')
@@ -316,8 +314,7 @@ class OrderListPanel(QWidget):
         """
         删除订单（右键菜单触发）。
 
-        2026-06-15 业务规则：仅含临时产品项的 PI 可删除（菜单层已过滤，
-        后端 /pi/batch-delete 也会校验双重保险）。
+        2026-07-02：临时产品功能已去除，所有 PI 均可删除。
 
         Args:
             pi_id: PI 数据库主键
@@ -487,17 +484,10 @@ class OrderListPanel(QWidget):
         currency = order.get('currency', 'USD')
         self._table.setItem(row, 5, QTableWidgetItem(f"{total_amount:.2f} {currency}"))
         
-        # 列6: 状态（任意产品为临时 → 整单显示"临时"）
-        from PySide6.QtGui import QColor as _QC
-        has_temp_item = order.get('has_temporary_items', False)
-        if has_temp_item:
-            status_text = '临时'
-            status_item = QTableWidgetItem(status_text)
-            status_item.setForeground(_QC('#d97706'))
-        else:
-            status_val = order.get('status', '')
-            status_text = self._get_status_text(status_val)
-            status_item = QTableWidgetItem(status_text)
+        # 列6: 状态
+        status_val = order.get('status', '')
+        status_text = self._get_status_text(status_val)
+        status_item = QTableWidgetItem(status_text)
         self._table.setItem(row, 6, status_item)
         
         # 列7: 已付款 [2026-06-11 需求 38]
@@ -727,18 +717,9 @@ class OrderListPanel(QWidget):
                     'enabled': True, 'mode': 'ship'}
         
         # 默认 fallback：保存正式纪录（紫色）[2026-06-12 需求#42]
-        # 2026-06-15 业务规则：订单内仍有临时产品时该按钮不可用，
-        # 只有订单内完全没有临时产品时才开始可用。
-        # - has_temporary_items=True  → 仍有临时产品 → disabled
-        # - has_temporary_items=False → 全部转正     → enabled
-        # - 字段缺失（None）          → 未知/老数据   → disabled（保守）
-        raw = order.get("has_temporary_items")
-        if raw is None:
-            has_temporary_items = True  # 字段缺失，按"仍有临时产品"处理，保守
-        else:
-            has_temporary_items = bool(raw)
+        # 2026-07-02：临时产品功能已去除，所有订单均可保存正式纪录
         return {'text': '保存正式纪录', 'color': '#7c3aed', 'hover': '#6d28d9',
-                'enabled': not has_temporary_items, 'mode': 'formal'}
+                'enabled': True, 'mode': 'formal'}
     
     def _on_pi_action(self, order: dict, mode: str):
         """PI操作按钮点击回调 - 发射信号由 main_window 处理"""

@@ -19,7 +19,6 @@ widgets 模块统一导出
 - PaymentDialog: 付款对话框
 - MemoDialog: 备注对话框
 - FileUploadDialog: 文件上传对话框
-- WizardConfirmDialog: 向导确认对话框
 - SingleOrderDialog: 单订单对话框
 - ReplyExportDialog: 回复导出对话框
 - ProductSupplierDialog: 产品供应商对话框
@@ -42,7 +41,6 @@ from .customer_product_dialog import CustomerProductDialog
 from .payment_dialog import PaymentDialog
 from .memo_dialog import MemoDialog
 from .file_upload_dialog import FileUploadDialog
-from .wizard_confirm_dialog import WizardConfirmDialog
 from .single_order_dialog import SingleOrderDialog
 from .reply_export_dialog import ReplyExportDialog
 from .product_supplier_dialog import ProductSupplierDialog
@@ -69,7 +67,6 @@ __all__ = [
     'PaymentDialog',
     'MemoDialog',
     'FileUploadDialog',
-    'WizardConfirmDialog',
     'SingleOrderDialog',
     'ReplyExportDialog',
     'ProductSupplierDialog',

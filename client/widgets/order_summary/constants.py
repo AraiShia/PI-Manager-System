@@ -172,7 +172,6 @@ STATUS_TEXTS = [
 ]
 
 # ============== 颜色调色板 ==============
-# readonly_fg: 临时产品(灰色只读)
 # invoice_paid: 已开票已付款(绿)
 # invoice_unpaid: 已开票未付款(橙)
 COLORS = {

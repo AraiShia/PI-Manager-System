@@ -441,7 +441,7 @@ class ApiClient:
         return self.get(f"/pi/items/{item_id}")
 
     def update_pi_item(self, item_id: int, data: Dict) -> Dict:
-        """更新PI订单项（用于临时产品转正）"""
+        """更新PI订单项"""
         return self.put(f"/pi/items/{item_id}", data)
 
     # 2026-06-12 需求#40：软删除 / 入库 API
