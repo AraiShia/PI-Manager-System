@@ -628,6 +628,31 @@ def update_pi_item_api(item_id: int, update_data: dict, db: Session = Depends(ge
     }
 
 
+class ChangeSupplierRequest(BaseModel):
+    supplier_name: Optional[str] = None
+    factory_short_name: Optional[str] = None
+    shop_url: Optional[str] = None
+    line_1688_url: Optional[str] = None
+    factory_code: Optional[str] = None
+    brand: Optional[str] = None
+    purchase_price: Optional[float] = None
+    factory_price: Optional[float] = None
+    factory_deposit: Optional[float] = None
+    factory_balance: Optional[float] = None
+    invoice_status: Optional[str] = None
+
+
+@router.put("/items/{item_id}/change-supplier")
+def change_supplier_api(item_id: int, body: ChangeSupplierRequest, db: Session = Depends(get_db)):
+    """更换 PI item 的供应商并重新生成采购单"""
+    from crud.pi import change_pi_item_supplier
+    try:
+        result = change_pi_item_supplier(db, item_id, body.model_dump(exclude_unset=True))
+        return {"success": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # 2026-06-12 需求#40：软删除 / 入库接口
 class InboundSingleRequest(BaseModel):
     quantity: float
