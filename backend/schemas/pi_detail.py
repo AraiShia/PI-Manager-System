@@ -9,8 +9,6 @@ class PIInvoiceItemDetailResponse(BaseModel):
     # === 元数据 ===
     id: int
     product_id: Optional[int] = None
-    is_temporary: Optional[bool] = False              # 临时产品标志
-    temporary_reason: Optional[str] = None             # 原因说明
     
     # === A组: 基础信息 (列0-8) ===
     order_date: Optional[str] = None                   # 列0: 订单日期

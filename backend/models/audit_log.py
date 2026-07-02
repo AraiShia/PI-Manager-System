@@ -1,6 +1,6 @@
 """
 产品操作审计日志模型
-记录临时产品转正等关键操作
+记录产品关键操作
 """
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Index
 from sqlalchemy.sql import func

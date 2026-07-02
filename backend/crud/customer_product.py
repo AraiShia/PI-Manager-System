@@ -138,15 +138,13 @@ def _generate_system_code_with_retry(db: Session, customer_id: int, category_id:
 
 
 def create_customer_product(db: Session, data: CustomerProductCreate, dept_code: str = 'S') -> PrdCustomerProduct:
-    """创建客户产品（支持临时/正式产品，单表存储）"""
+    """创建客户产品"""
     # 生成系统产品编号
     system_code = _generate_system_code(db, data.customer_id, data.category_id, dept_code)
 
     # 处理副图（存储为JSON）
     sub_images_json = json.dumps(data.sub_images) if data.sub_images else None
 
-    # Phase 2: 创建客户产品（含临时产品标志）
-    is_temporary = bool(getattr(data, "is_temporary", False))
     customer_product = PrdCustomerProduct(
         customer_id=data.customer_id,
         system_code=system_code,  # 自动生成的系统编号
@@ -167,7 +165,6 @@ def create_customer_product(db: Session, data: CustomerProductCreate, dept_code:
         carton_height_cm=data.carton_height_cm,
         units_per_carton=data.units_per_carton,
         gross_weight_kg=data.gross_weight_kg,
-        is_temporary=is_temporary,  # Phase 2: 临时产品标志
     )
     db.add(customer_product)
     db.flush()

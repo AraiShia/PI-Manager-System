@@ -103,8 +103,6 @@ def _build_response(customer_product, db: Session):
         image_url=customer_product.image_url,
         sub_images=sub_images,
         is_active=customer_product.is_active,
-        # Phase 2: 临时产品标志
-        is_temporary=bool(getattr(customer_product, "is_temporary", False)),
         created_at=customer_product.created_at,
         updated_at=customer_product.updated_at,
         customer_name=customer.customer_name if customer else None,

@@ -55,7 +55,6 @@ class CompatProductItem(BaseModel):
     price_rmb: Optional[float] = None
     image_url: Optional[str] = None
     sub_images: Optional[List[str]] = None
-    is_temporary: bool = False
     is_active: bool = True
 
 
@@ -96,7 +95,6 @@ def _to_compat_item(cp) -> CompatProductItem:
         price_rmb=float(cp.price_rmb) if cp.price_rmb is not None else None,
         image_url=cp.image_url,
         sub_images=sub_images,
-        is_temporary=bool(cp.is_temporary),
         is_active=bool(cp.is_active) if cp.is_active is not None else True,
     )
 

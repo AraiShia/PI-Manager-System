@@ -321,10 +321,6 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         customer_id=customer.id if customer else None,
     )
 
-    # 2026-07-02: 临时产品功能已去除，统一视为正式记录
-    is_temporary = False
-    temp_data = {}
-
     # Phase 5: customer_model 优先取 item 自身字段（导入时直接写入），
     # 其次从产品的 customer_model 字段取
     customer_model = getattr(item, 'customer_model', None) or item.detail_desc
@@ -422,9 +418,6 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         "id": item.id,
         "product_id": item.product_id,
         "po_item_id": po_item_id,  # 2026-06-15: 添加采购单项ID用于保存包装规格
-        "is_temporary": False,
-        "temporary_reason": None,
-        "temp_data": {},
         
         # === 包装规格数据 (2026-06-15) ===
         # FixPlan Task 4: 优先快照字段，回退 package_data
@@ -495,7 +488,7 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
             getattr(item, 'remaining_payment', None) and float(getattr(item, 'remaining_payment', None)),
             None
         ),
-        # Fix 2026-06-23: col 15/16 用真实数据计算（temp_data 永远是空 dict）
+        # Fix 2026-06-23: col 15/16 用真实数据计算
         # Excel列15: 预估美金报价 = 采购价 × (1 + 基础毛利率) / 汇率
         # Excel列16: 预估毛利率 = 客户美金报价 × 汇率 / 采购总金额 × 100%
         # FixPlan Task 4: 采购价/运费/杂费 优先快照字段
@@ -511,7 +504,7 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
             getattr(item, 'misc_fee', None) and float(getattr(item, 'misc_fee', None)),
             None
         ),
-        # Fix 2026-06-23: col 15/16 用真实数据计算（temp_data 永远是空 dict）
+        # Fix 2026-06-23: col 15/16 用真实数据计算
         # Excel列15: 预估美金报价 = 采购价 × (1 + 基础毛利率) / 汇率（RMB采购）或 ×(1+毛利率)（USD采购）
         "estimated_usd": _calculate_estimated_usd(
             _purchase_price,
@@ -1080,10 +1073,6 @@ def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaIn
         db_item.quantity = update_data['quantity']
     if 'remark' in update_data:
         db_item.remark = update_data['remark']
-    if 'temp_model' in update_data:
-        db_item.temp_model = update_data['temp_model']
-    if 'temp_image' in update_data:
-        db_item.temp_image = update_data['temp_image']
 
     # 🔧 2026-06-22 新增：41列设计字段(导入时直接存入主表)
     if 'customer_model' in update_data:

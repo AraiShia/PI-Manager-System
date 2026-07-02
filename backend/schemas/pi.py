@@ -11,16 +11,13 @@ class PIPaymentStageCreate(BaseModel):
     due_date: Optional[datetime] = None
 
 class PIInvoiceItemCreate(BaseModel):
-    product_id: Optional[int] = None   # 临时产品可为NULL
+    product_id: Optional[int] = None
     quantity: float
     unit_price: float
     oe_number: Optional[str] = None
     customer_code: Optional[str] = None
     detail_desc: Optional[str] = None
     remark: Optional[str] = None
-    is_temporary: Optional[bool] = False  # 2026-06-10 新增：临时产品标志
-    temp_model: Optional[str] = None      # 临时产品型号
-    temp_image: Optional[str] = None      # 临时产品图片
 
 class PIInvoiceBase(BaseModel):
     dept_id: str
@@ -60,8 +57,6 @@ class PIInvoiceResponse(PIInvoiceBase):
     inventory_quantity: Optional[float] = 0
     inventory_pending: Optional[float] = 0
     inventory_count: Optional[int] = 0
-    has_temporary_items: Optional[bool] = False
-    temporary_item_count: Optional[int] = 0
     # 2026-06-11 Phase 7.6: 出货回填字段
     shipment_count: Optional[int] = 0
     shipped_quantity: Optional[float] = 0
@@ -76,7 +71,7 @@ class PIInvoiceResponse(PIInvoiceBase):
 
 class PIInvoiceItemResponse(BaseModel):
     id: int
-    product_id: Optional[int] = None   # 临时产品可为NULL
+    product_id: Optional[int] = None
     oe_number: Optional[str] = None
     customer_code: Optional[str] = None
     detail_desc: Optional[str] = None
@@ -98,7 +93,6 @@ class PIInvoiceItemResponse(BaseModel):
     carton_gross_weight: Optional[float] = None
     total_weight: Optional[float] = None
     brand: Optional[str] = None
-    is_temporary: Optional[bool] = False
     image_url: Optional[str] = None
     customer_model: Optional[str] = None
     product_feature: Optional[str] = None

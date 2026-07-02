@@ -70,8 +70,6 @@ class CustomerProductCreate(BaseModel):
     codes: Optional[List[str]] = None
     # OE号列表（创建时一并添加）
     oes: Optional[List[str]] = None
-    # Phase 2: 临时产品标志（默认 False）
-    is_temporary: Optional[bool] = False
 
 
 class CustomerProductUpdate(BaseModel):
@@ -94,8 +92,6 @@ class CustomerProductUpdate(BaseModel):
     units_per_carton: Optional[int] = None
     gross_weight_kg: Optional[float] = None
     is_active: Optional[bool] = None
-    # Phase 2: 临时产品标志（用于转正操作）
-    is_temporary: Optional[bool] = None
 
 
 class CustomerProductResponse(BaseModel):
@@ -117,8 +113,6 @@ class CustomerProductResponse(BaseModel):
     image_url: Optional[str] = None
     sub_images: Optional[List[str]] = None
     is_active: bool
-    # Phase 2: 临时产品标志
-    is_temporary: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     

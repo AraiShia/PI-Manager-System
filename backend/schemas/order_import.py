@@ -100,9 +100,6 @@ class OrderImportData(BaseModel):
     oe_number: Optional[str] = Field(None, max_length=100, description="OE号")
     product_desc: Optional[str] = Field(None, max_length=500, description="产品描述")
     
-    # [6.0.2] [6.0.2.4] 是否为临时PI（导入时由前端写入）
-    is_temp_pi: Optional[bool] = Field(False, description="是否为临时PI，导入时由前端标记")
-    
     # 数量和价格（列6-10）
     quantity: int = Field(..., ge=1, description="数量")
     unit_price: Decimal = Field(..., gt=0, description="单价")
@@ -206,9 +203,7 @@ class PreviewResponse(BaseModel):
 class BatchMatchRequest(BaseModel):
     """批量匹配请求"""
     items: List[MatchItem] = Field(..., min_length=1, max_length=1000, description="匹配项列表")
-    # 已废弃：临时产品功能已去除，字段保留仅用于兼容旧请求
-    auto_create_temporary: bool = Field(default=False, description="已废弃，不再影响逻辑")
-    customer_id: Optional[int] = Field(default=None, ge=1, description="已废弃，逻辑改由 item.customer_id 决定")
+    customer_id: Optional[int] = Field(default=None, ge=1, description="全局客户ID，作为 item.customer_id 的 fallback")
 
     model_config = ConfigDict(extra='forbid')
 

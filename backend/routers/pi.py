@@ -87,18 +87,7 @@ def read_pi_list(skip: int = 0, limit: int = 100, status: int = None, db: Sessio
         r["storage_status"] = StorageStatus.from_order_inventory(
             db, pi_id=pi_id, expected_total=expected_qty_total
         )
-        # 5) 临时产品统计（is_temporary 字段：0=正式, 1=临时）
-        # Phase 5: 改为显式 join prd_customer_product，避开已删除的 product relationship
-        temp_count = db.query(PiProformaInvoiceItem).join(
-            PrdCustomerProduct,
-            PiProformaInvoiceItem.product_id == PrdCustomerProduct.id
-        ).filter(
-            PiProformaInvoiceItem.pi_id == pi_id,
-            PrdCustomerProduct.is_temporary == True
-        ).count()
-        r["has_temporary_items"] = temp_count > 0
-        r["temporary_item_count"] = temp_count
-        # 6) 2026-06-11 Phase 7.6: 出货回填
+        # 5) 2026-06-11 Phase 7.6: 出货回填
         from models import ShShipment
         sh_list = db.query(ShShipment).filter(ShShipment.pi_id == pi_id).all()
         r["shipment_count"] = len(sh_list)
@@ -569,14 +558,11 @@ def read_pi_items(pi_id: int, db: Session = Depends(get_db)):
             "pi_no": pi_no,
             "product_id": item.product_id,
             "product_name": product_name or item.detail_desc or "",
-            "model": item.customer_code or item.temp_model or "",
+            "model": item.customer_code or item.customer_model or "",
             "customer_name": customer_name,
             "quantity": float(item.quantity) if item.quantity else 0,
             "shipped_quantity": shipped_quantity,
             "unit_price": float(item.unit_price) if item.unit_price else 0,
-            "is_temporary": bool(item.is_temporary),
-            "temp_model": item.temp_model,
-            "temp_image": item.temp_image,
         })
     
     return result
@@ -598,14 +584,11 @@ def read_pi_item(item_id: int, db: Session = Depends(get_db)):
         "detail_desc": item.detail_desc,
         "quantity": float(item.quantity) if item.quantity else 0,
         "unit_price": float(item.unit_price) if item.unit_price else 0,
-        "is_temporary": bool(item.is_temporary),
-        "temp_model": item.temp_model,
-        "temp_image": item.temp_image,
     }
 
 @router.put("/items/{item_id}")
 def update_pi_item_api(item_id: int, update_data: dict, db: Session = Depends(get_db)):
-    """更新PI订单项（用于临时产品转正）"""
+    """更新PI订单项"""
 
     # 🔧 2026-06-22 修复：使用 ASCII 避免 Windows GBK 终端的 UnicodeEncodeError
     print(f"\n{'='*60}")
@@ -634,7 +617,6 @@ def update_pi_item_api(item_id: int, update_data: dict, db: Session = Depends(ge
         "success": True,
         "id": db_item.id,
         "product_id": db_item.product_id,
-        "is_temporary": bool(db_item.is_temporary),
         "message": "订单项更新成功",
         # ✅ 新增：返回关键字段值供验证
         "debug_fields": {

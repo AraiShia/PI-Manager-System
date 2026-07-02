@@ -215,7 +215,7 @@ async def import_orders(
                     if order_data.get('product_id'):
                         logger.info(f"    ✓ 匹配成功: product_id={order_data.get('product_id')}")
                     elif order_data.get('customer_code'):
-                        logger.info(f"    ⚠ 未匹配到产品，将创建临时产品: customer_code={order_data.get('customer_code')}")
+                        logger.info(f"    ⚠ 未匹配到产品，将创建正式产品: customer_code={order_data.get('customer_code')}")
                     else:
                         logger.warning(f"    ✗ 无MODEL字段，无法匹配")
 
@@ -514,26 +514,26 @@ def _parse_decimal(value: str) -> Decimal:
 
 
 def _auto_match_entities(data: dict, product_matcher: ProductMatcher, customer_id: int = None):
-    """自动匹配产品（根据 Model 列匹配 PrdCustomerProduct.customer_code）
-    匹配不到时自动创建临时产品
+    """自动匹配产品（根据 Model 列匹配 PrdCustomerProduct.customer_model）
+    匹配不到时自动创建正式客户产品
 
     🔧 2026-06-29 修正：Model 列值已写入 customer_code，用 customer_code 匹配
+    2026-07-02: 临时产品功能已去除，所有新建产品均为正式产品
     """
     model_code = data.get('customer_code') or data.get('model')
 
     logger.info(f"[导入匹配] 开始匹配 - model_code={model_code}, customer_id={customer_id}")
     logger.info(f"[导入匹配] 原始数据: {data}")
-    
+
     if not customer_id:
         logger.warning(f"[导入匹配] 跳过 - customer_id={customer_id}")
         return
-    
+
     db = product_matcher.db
-    
+
     # Phase 5: 直接查 prd_customer_product（customer_id + customer_model 唯一）
     from models.customer_product import PrdCustomerProduct
 
-    # 2026-06-29: 有 Model 时才尝试匹配已有产品，无 Model 时直接创建临时产品
     if model_code:
         logger.info(f"[导入匹配] 查询 PrdCustomerProduct - customer_id={customer_id}, model_code='{model_code}'")
 
@@ -547,39 +547,39 @@ def _auto_match_entities(data: dict, product_matcher: ProductMatcher, customer_i
             data['product_id'] = match.id
             return
 
-        logger.warning(f"[导入匹配] 未找到匹配，开始创建临时产品 - model_code='{model_code}'")
+        logger.warning(f"[导入匹配] 未找到匹配，创建正式产品 - model_code='{model_code}'")
     else:
-        logger.warning(f"[导入匹配] 无 Model，直接创建临时产品")
+        logger.warning(f"[导入匹配] 无 Model，创建正式产品")
 
     # 2026-06-29: 优先使用导入的 Model 作为客户型号，无 Model 时自动生成 TP + 日期 + 随机字符
     import random
     import string
     if model_code:
-        temp_code = model_code
+        product_code = model_code
     else:
         date_str = datetime.now().strftime("%y%m%d")
         random_chars = ''.join(random.choices(string.ascii_uppercase + string.digits, k=2))
-        temp_code = f"TP{date_str}{random_chars}"
+        product_code = f"TP{date_str}{random_chars}"
 
-    # Phase 5: 创建 PrdCustomerProduct 临时产品（is_temporary=1）
+    # 2026-07-02: 创建正式客户产品（is_temporary=False）
     # 2026-06-23 修复：统一 product_name 和 detail_desc，避免产品管理列表与订单详情表显示不一致
-    # 2026-06-29: customer_model = customer_product_code = temp_code
-    temp_name = f"临时产品-{temp_code}"
-    temp_product = PrdCustomerProduct(
+    # 2026-06-29: customer_model = customer_product_code = product_code
+    product_name = data.get('product_desc') or data.get('product_name') or f"产品-{product_code}"
+    new_product = PrdCustomerProduct(
         customer_id=customer_id,
-        customer_model=temp_code,
-        customer_product_code=temp_code,
-        detail_desc=temp_name,
-        product_name=temp_name,
-        is_temporary=True,
+        customer_model=product_code,
+        customer_product_code=product_code,
+        detail_desc=product_name,
+        product_name=product_name,
+        is_temporary=False,
     )
-    db.add(temp_product)
+    db.add(new_product)
     db.flush()
 
-    logger.info(f"[导入匹配] 临时产品创建成功 - id={temp_product.id}, code={temp_code}")
+    logger.info(f"[导入匹配] 正式产品创建成功 - id={new_product.id}, code={product_code}")
 
-    data['product_id'] = temp_product.id
-    logger.info(f"[导入匹配] 完成 - 最终product_id={temp_product.id}")
+    data['product_id'] = new_product.id
+    logger.info(f"[导入匹配] 完成 - 最终product_id={new_product.id}")
 
 
 def _create_pi_order(items: list, customer_id: int, db: Session):
@@ -654,7 +654,6 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
     # 创建Items
     logger.info(f"\n[步骤5/6] 创建PI明细项 (共{len(items)}个)...")
     items_created = 0
-    temp_products_count = 0
 
     for idx, item_data in enumerate(items):
         item_start = datetime.now()
@@ -670,8 +669,6 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
         logger.info(f"    小计: {qty * price} USD")
 
         # 检查产品状态
-        item_is_temporary = False
-        item_temp_model = None
         prod_id = item_data.get('product_id')
 
         if prod_id:
@@ -679,8 +676,7 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
             prod_obj = db.query(PrdCustomerProduct).filter(PrdCustomerProduct.id == prod_id).first()
 
             if prod_obj:
-                item_is_temporary = bool(prod_obj.is_temporary)
-                item_temp_model = prod_obj.customer_model or model
+                item_model = prod_obj.customer_model or model
                 # 🔧 2026-06-22 修复：PrdCustomerProduct 没有 oe_number 字段
                 # OE号存储在关联表 PrdCustomerProductOE 中，通过 oes 关系访问
                 prod_oe_number = None
@@ -689,13 +685,8 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
                     prod_oe_number = primary_oe.oe_number if primary_oe else (prod_obj.oes[0].oe_number if prod_obj.oes else None)
                 logger.info(f"    [产品详情]")
                 logger.info(f"      产品ID: {prod_obj.id}")
-                logger.info(f"      是否临时: {'是 (需要转正)' if item_is_temporary else '否'}")
                 logger.info(f"      客户型号: {prod_obj.customer_model}")
                 logger.info(f"      OE号: {prod_oe_number}")
-
-                if item_is_temporary:
-                    temp_products_count += 1
-                    logger.warning(f"    ⚠️ 此产品为临时产品，后续需要转正操作")
             else:
                 logger.warning(f"    [警告] product_id={prod_id} 在数据库中未找到!")
         else:
@@ -718,8 +709,6 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
             unit_price=price,                                          # Col 10
             total_price=qty * price,                                   # Col 11
             remark=item_data.get('remark') or (f"QTY: {qty}, MODEL: {model}" if qty or model else None),  # Col 4
-            is_temporary=item_is_temporary,
-            temp_model=item_temp_model,
 
             # === B组: 价格与财务 (Col 13-20) ===
             customer_prepayment=item_data.get('customer_prepayment'),  # Col 13
@@ -764,8 +753,6 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
 
     logger.info(f"\n[✅ 所有Items创建完成]")
     logger.info(f"  成功创建: {items_created}/{len(items)} 个")
-    logger.info(f"  临时产品数: {temp_products_count} 个 (需要后续转正)")
-    logger.info(f"  正式产品数: {items_created - temp_products_count} 个")
 
     create_duration = (datetime.now() - create_start).total_seconds()
     logger.info(f"\n{'─' * 80}")
@@ -775,7 +762,6 @@ def _create_pi_order(items: list, customer_id: int, db: Session):
     logger.info(f"    PI_NO: {pi.pi_no}")
     logger.info(f"    总金额: {pi.total_amount}")
     logger.info(f"    Items数: {items_created}")
-    logger.info(f"    临时产品: {temp_products_count}")
     logger.info(f"{'─' * 80}\n")
 
     return pi
@@ -1041,15 +1027,7 @@ async def match_product(
 
 
 # ============================================================
-# 6. 临时产品API
-# ============================================================
-
-from pydantic import BaseModel, ConfigDict
-from typing import Optional
-
-
-# ============================================================
-# 7. 单条订单创建API
+# 6. 单条订单创建API
 # ============================================================
 
 from pydantic import BaseModel
@@ -1206,7 +1184,6 @@ async def generate_pi_for_order(
 
 class SupplementItemsRequest(BaseModel):
     items: List[dict]
-    is_temp: bool = True
 
 class SupplementItemsResponse(BaseModel):
     success: bool
@@ -1223,10 +1200,10 @@ async def supplement_order_items(
 ):
     """
     补充订单商品
-    
+
     - 将 Excel 预览中的商品追加到现有订单
-    - 如果产品已存在，更新产品信息
-    - 如果产品不存在，创建临时产品或正式产品
+    - 如果产品已存在，复用产品
+    - 如果产品不存在，创建正式产品
     """
     from models.pi import PiProformaInvoice, PiProformaInvoiceItem
     
@@ -1266,81 +1243,56 @@ async def supplement_order_items(
                 db.add(order_item)
                 created_count += 1
             else:
-                # 产品不存在，根据 is_temp 创建临时或正式产品
-                if request.is_temp:
-                    # Phase 5: 创建 PrdCustomerProduct 临时产品
-                    from models.customer_product import PrdCustomerProduct
-                    new_product = PrdCustomerProduct(
-                        customer_id=customer_id,
-                        product_name=item_data.get('detail_desc', ''),
-                        customer_model=oe_number or product_code,
-                        detail_desc=item_data.get('detail_desc', ''),
-                        is_temporary=True,
-                        is_active=True,
-                    )
-                    db.add(new_product)
-                    db.flush()
-                    
-                    order_item = PiProformaInvoiceItem(
-                        order_id=order_id,
-                        product_id=new_product.id,
-                        quantity=item_data.get('qty', 1),
-                        unit_price=item_data.get('unit_price') or 0,
-                        amount=item_data.get('amount', 0)
-                    )
-                    db.add(order_item)
-                    created_count += 1
-                else:
-                    # Phase 5: 直接创建 PrdCustomerProduct 正式产品
-                    from models.customer_product import PrdCustomerProduct
-                    from crud.customer_product import _generate_system_code
-                    detail_desc = item_data.get('detail_desc', '') or product_code
-                    category_code = item_data.get('category_id')
-                    system_code = _generate_system_code(db, customer_id, category_code)
-                    new_product = PrdCustomerProduct(
-                        customer_id=customer_id,
-                        product_name=detail_desc,
-                        customer_model=oe_number or product_code,
-                        detail_desc=detail_desc,
-                        category_id=category_code,
-                        price_usd=item_data.get('unit_price'),
-                        is_active=True,
-                        system_code=system_code,
-                        is_temporary=False,
-                    )
-                    db.add(new_product)
-                    db.flush()
+                # Phase 5: 直接创建 PrdCustomerProduct 正式产品
+                from models.customer_product import PrdCustomerProduct
+                from crud.customer_product import _generate_system_code
+                detail_desc = item_data.get('detail_desc', '') or product_code
+                category_code = item_data.get('category_id')
+                system_code = _generate_system_code(db, customer_id, category_code)
+                new_product = PrdCustomerProduct(
+                    customer_id=customer_id,
+                    product_name=detail_desc,
+                    customer_model=oe_number or product_code,
+                    detail_desc=detail_desc,
+                    category_id=category_code,
+                    price_usd=item_data.get('unit_price'),
+                    is_active=True,
+                    system_code=system_code,
+                    is_temporary=False,
+                )
+                db.add(new_product)
+                db.flush()
 
-                    # 创建客户产品编号记录（用于搜索匹配）
-                    if product_code:
-                        from models.customer_product_code import PrdCustomerProductCode
-                        cp_code = PrdCustomerProductCode(
-                            customer_product_id=new_product.id,
-                            product_code=product_code,
-                            is_primary=True
-                        )
-                        db.add(cp_code)
-
-                    # 创建OE号记录（如果有）
-                    if oe_number:
-                        from models.customer_product_oe import PrdCustomerProductOE
-                        cp_oe = PrdCustomerProductOE(
-                            customer_product_id=new_product.id,
-                            oe_number=oe_number,
-                            is_primary=True
-                        )
-                        db.add(cp_oe)
-                    
-                    order_item = PiProformaInvoiceItem(
-                        order_id=order_id,
-                        product_id=new_product.id,
-                        quantity=item_data.get('qty', 1),
-                        unit_price=item_data.get('unit_price') or 0,
-                        amount=item_data.get('amount', 0)
+                # 创建客户产品编号记录（用于搜索匹配）
+                if product_code:
+                    from models.customer_product_code import PrdCustomerProductCode
+                    cp_code = PrdCustomerProductCode(
+                        customer_product_id=new_product.id,
+                        product_code=product_code,
+                        is_primary=True
                     )
-                    db.add(order_item)
-                    created_count += 1
-                    
+                    db.add(cp_code)
+
+                # 创建OE号记录（如果有）
+                if oe_number:
+                    from models.customer_product_oe import PrdCustomerProductOE
+                    cp_oe = PrdCustomerProductOE(
+                        customer_product_id=new_product.id,
+                        oe_number=oe_number,
+                        is_primary=True
+                    )
+                    db.add(cp_oe)
+
+                order_item = PiProformaInvoiceItem(
+                    order_id=order_id,
+                    product_id=new_product.id,
+                    quantity=item_data.get('qty', 1),
+                    unit_price=item_data.get('unit_price') or 0,
+                    amount=item_data.get('amount', 0)
+                )
+                db.add(order_item)
+                created_count += 1
+
         except Exception as e:
             errors.append(f"产品 {item_data.get('product_code', '未知')} 添加失败: {str(e)}")
             failed_count += 1

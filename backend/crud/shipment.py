@@ -261,8 +261,8 @@ def create_shipment(db: Session, shipment: ShipmentCreate) -> ShShipment:
                     order_total_amount = float(pi_item.total_price or 0)
                     oe_number = pi_item.oe_number
                     customer_code = pi_item.customer_code
-                    # 如果PI项有临时图片，使用临时图片；否则使用产品图片
-                    product_image = getattr(pi_item, 'temp_image', None) or (product.product_image if product else None)
+                    # 产品图片
+                    product_image = getattr(product, 'image_url', None) or getattr(product, 'product_image', None) if product else None
 
             # 如果没有PI项信息，尝试从产品获取客户编号
             if not customer_code and product:
