@@ -214,21 +214,11 @@ class OrderService(QObject):
                         detail = self.api_client.get_pi_detail(order_id)
                         if detail and 'items' in detail:
                             items = detail.get('items', []) or []
-                            for item in items:
-                                if not item.get('product_id') or item.get('product_id') == 0:
-                                    item['is_temporary'] = True
-                                elif 'is_temporary' not in item:
-                                    item['is_temporary'] = False
                             return order_id, items, 'ok'
                     except Exception as e:
                         return order_id, [], f'error:{e}'
                     # 降级：使用订单内嵌 items
                     items = order.get('items', []) or []
-                    for item in items:
-                        if not item.get('product_id') or item.get('product_id') == 0:
-                            item['is_temporary'] = True
-                        elif 'is_temporary' not in item:
-                            item['is_temporary'] = False
                     return order_id, items, 'fallback'
                 
                 _t_par = time.time()
