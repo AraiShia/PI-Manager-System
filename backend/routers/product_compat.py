@@ -23,8 +23,6 @@ from crud.customer_product import (
     get_customer_products_by_customer,
     search_by_oe_number,
     search_by_code,
-    # 2026-06-16 修复 log.txt 404：转正+更新
-    update_and_confirm_temporary,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,24 +166,4 @@ def get_product_compat(product_id: int, db: Session = Depends(get_db)):
     return _to_compat_item(cp)
 
 
-@router.post("/{product_id}/confirm")
-def confirm_product_compat(
-    product_id: int,
-    full_data: dict,
-    db: Session = Depends(get_db),
-):
-    """2026-06-16 修复 log.txt 404：兼容端点 POST /api/products/{product_id}/confirm
 
-    旧前端代码（订单导入 dialog）调用此端点确认临时产品。
-    Phase 5 后底层已迁移到 PrdCustomerProduct，本端点直接调用 `update_and_confirm_temporary`。
-
-    Returns:
-        200 + CompatProductItem 转正后的产品信息
-        404 产品不存在
-    """
-    logger.info("[compat /api/products/{id}/confirm] product_id=%s data_keys=%s",
-                product_id, list((full_data or {}).keys()))
-    cp = update_and_confirm_temporary(db, product_id, full_data or {})
-    if not cp:
-        raise HTTPException(status_code=404, detail=f"产品 {product_id} 不存在")
-    return _to_compat_item(cp)

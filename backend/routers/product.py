@@ -5,7 +5,6 @@ from app.database import get_db
 from crud.product import (
     create_product, get_product, get_products, update_product, delete_product, 
     search_products, get_product_images, toggle_product_status, add_product_image, delete_product_image,
-    confirm_temporary_product
 )
 from schemas.product import ProductCreate, ProductUpdate, ProductResponse, ProductImageResponse
 from routers.auth import get_current_user, get_current_admin, get_current_user_optional
@@ -182,46 +181,6 @@ def delete_product_api(product_id: int, db: Session = Depends(get_db)):
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return {"message": result["message"]}
-
-@router.post("/{product_id}/confirm")
-def confirm_product(
-    product_id: int, 
-    full_data: dict,
-    db: Session = Depends(get_db)
-):
-    """将临时产品转为正式产品
-    
-    Args:
-        product_id: 产品ID
-        full_data: 完整的产品数据字典
-        
-    Returns:
-        200: 转正成功，返回更新后的产品信息
-        404: 产品不存在
-        409: 产品已被其他用户转正
-    """
-    try:
-        product = confirm_temporary_product(db, product_id, full_data)
-        
-        return {
-            "id": product.id,
-            "product_code": product.product_code,
-            "is_temporary": product.is_temporary,
-            "detail_desc": product.detail_desc,
-            "oe_number": product.oe_number,
-            "brand": product.brand,
-            "category_id": product.category_id,
-            "supplier_id": product.supplier_id,
-            "status": product.status
-        }
-    except ValueError as e:
-        error_msg = str(e)
-        if "CONFLICT" in error_msg:
-            raise HTTPException(status_code=409, detail="该产品已被其他用户转正")
-        else:
-            raise HTTPException(status_code=404, detail=error_msg)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="转正失败，请稍后重试")
 
 @router.get("/{product_id}/images", response_model=list[ProductImageResponse])
 def read_product_images(product_id: int, db: Session = Depends(get_db)):
