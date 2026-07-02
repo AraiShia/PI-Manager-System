@@ -7,11 +7,12 @@
 
 from typing import List, Dict, Optional, Any
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QFileDialog, QMessageBox,
     QProgressBar, QCheckBox, QComboBox, QGroupBox, QScrollArea,
     QWidget, QAbstractItemView, QHeaderView, QLineEdit, QMenu
 )
+from config import Config
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QTimer
 from PySide6.QtGui import QColor, QFont
 
@@ -211,6 +212,12 @@ class OrderImportDialog(QDialog):
         self.customer_combo.currentIndexChanged.connect(self._on_customer_changed)
         customer_layout.addWidget(self.customer_combo)
 
+        # 搜索不到客户时支持快速新增
+        self.add_customer_btn = QPushButton("新增客户")
+        self.add_customer_btn.setToolTip("未找到客户时快速创建新客户")
+        self.add_customer_btn.clicked.connect(self._on_add_customer_clicked)
+        customer_layout.addWidget(self.add_customer_btn)
+
         # 兼容旧代码：保留 load_customer_btn 引用但隐藏
         self.load_customer_btn = QPushButton("加载")
         self.load_customer_btn.clicked.connect(self.load_customers)
@@ -239,7 +246,90 @@ class OrderImportDialog(QDialog):
         
         group.setLayout(layout)
         return group
-    
+
+    def _get_dept_id_for_new_customer(self) -> str:
+        """获取用于创建新客户的部门 ID"""
+        parent = self.parent()
+        if parent and hasattr(parent, 'dept_id'):
+            return parent.dept_id
+        user = getattr(self.api_client, 'current_user', None) or {}
+        return user.get('dept_id') or 'S'
+
+    def _on_add_customer_clicked(self):
+        """点击新增客户：弹出快速创建客户对话框"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("新增客户")
+        dialog.setMinimumWidth(320)
+
+        layout = QVBoxLayout(dialog)
+        form_layout = QFormLayout()
+
+        name_input = QLineEdit()
+        name_input.setPlaceholderText("必填")
+        form_layout.addRow("客户名称:", name_input)
+
+        code_input = QLineEdit()
+        code_input.setPlaceholderText("选填")
+        form_layout.addRow("客户代码:", code_input)
+
+        country_input = QLineEdit()
+        country_input.setPlaceholderText("选填")
+        form_layout.addRow("国家:", country_input)
+
+        dept_combo = QComboBox()
+        dept_id_map = {}
+        default_dept_id = self._get_dept_id_for_new_customer()
+        default_index = 0
+        for idx, (dept_id, cfg) in enumerate(Config.DEPARTMENT_DB_CONFIG.items()):
+            dept_combo.addItem(cfg.get('name', dept_id), dept_id)
+            dept_id_map[idx] = dept_id
+            if dept_id == default_dept_id:
+                default_index = idx
+        dept_combo.setCurrentIndex(default_index)
+        form_layout.addRow("所属部门:", dept_combo)
+
+        layout.addLayout(form_layout)
+
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("保存")
+        cancel_btn = QPushButton("取消")
+        btn_layout.addStretch()
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        save_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        customer_name = name_input.text().strip()
+        if not customer_name:
+            QMessageBox.warning(self, "提示", "客户名称不能为空")
+            return
+
+        dept_id = dept_combo.currentData()
+        payload = {
+            'dept_id': dept_id,
+            'customer_name': customer_name,
+            'customer_code': code_input.text().strip() or None,
+            'country': country_input.text().strip() or None,
+        }
+
+        try:
+            response = self.api_client.post('/customers/', data=payload)
+            if response and response.get('id'):
+                QMessageBox.information(self, "成功", f"客户创建成功：{customer_name}")
+                self.load_customers()
+                # 自动选中新客户
+                QTimer.singleShot(200, lambda: self._select_customer_on_load(response['id']))
+            else:
+                error = response.get('detail', response.get('error', '创建失败')) if response else '创建失败'
+                QMessageBox.warning(self, "错误", f"创建客户失败：{error}")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"创建客户失败：{e}")
+
     def _create_preview_group(self) -> QGroupBox:
         """创建预览区域"""
         group = QGroupBox("2. 数据预览")
