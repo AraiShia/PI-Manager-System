@@ -1554,9 +1554,6 @@ class SupplierDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
-    # ===== 临时产品只读列集合 (v1.1, 选择列后索引+1) =====
-    TEMPORARY_READONLY_COLUMNS = {9, 13, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-                                27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41}
 
     def __init__(self, api_client: ApiClient, dept_id: str):
         super().__init__()
@@ -1669,9 +1666,8 @@ class MainWindow(QMainWindow):
     
     def load_globals(self):
         """加载全局变量（使用本地配置，无网络延迟）
-        
-        🔧 2026-06-29 优化：同步预加载客户列表缓存，解决转正 Dialog 打开时
-        客户列表未加载导致下拉为空的问题。
+
+        🔧 2026-06-29 优化：同步预加载客户列表缓存。
         """
         try:
             from config.local_settings_manager import load_local_settings
@@ -1685,7 +1681,6 @@ class MainWindow(QMainWindow):
             self.exchange_rate = 7.24
 
         # 🔧 2026-06-29 同步预加载客户列表缓存
-        # 确保任何时候打开转正 Dialog 都有缓存可用，避免 combo 为空
         try:
             from api.cached_client import CachedApiClient
             if isinstance(self.api_client, CachedApiClient):
@@ -3570,7 +3565,6 @@ class MainWindow(QMainWindow):
         self.order_detail_panel = self._order_summary_tab.get_detail_panel()
 
         # 2026-06-23 修复：保存正式纪录成功后刷新产品管理列表
-        # 确保临时产品自动转正后的新名称同步显示在产品管理中
         if self.order_detail_panel:
             self.order_detail_panel.formalRecordSaved.connect(
                 lambda: self.load_products(use_cache=False)
@@ -3892,7 +3886,7 @@ class MainWindow(QMainWindow):
         """更新订单总表视图显示 - 委托给 OrderSummaryTab"""
         # 委托给新组件处理
         if hasattr(self, '_order_summary_tab') and self._order_summary_tab is not None:
-            # 2026-06-10 修复：先刷新数据再设置视图模式，确保转正后能正确显示
+            # 2026-06-10 修复：先刷新数据再设置视图模式
             self._order_summary_tab.refresh_data()
             self._order_summary_tab.set_view_mode(self._order_summary_view_mode)
     

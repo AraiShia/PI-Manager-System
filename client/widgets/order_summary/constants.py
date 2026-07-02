@@ -166,11 +166,6 @@ ORDER_DETAIL_COLUMN_WIDTHS = {
 
 ORDER_DETAIL_ROW_HEIGHT = 32
 
-# ============== 临时产品只读列 ==============
-# 临时产品(未转正)时不可编辑的列索引集合
-# 来源: main.py MainWindow.TEMPORARY_READONLY_COLUMNS (保持一致)
-TEMPORARY_READONLY_COLUMNS = {9, 13, 18, 19, 20, 21, 22, 23, 24, 25, 26}
-
 # ============== 状态文本 ==============
 STATUS_TEXTS = [
     "PI 已生成", "客户已确认", "工厂已报价", "采购已下单", "已部分付款", "库存已锁定",

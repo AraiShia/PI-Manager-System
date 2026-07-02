@@ -13,7 +13,6 @@
 - 填充各组数据（A-F组）
 - 处理双击编辑事件
 - 状态灯管理
-- 临时产品只读控制
 
 调用方式：
 ```python
@@ -54,7 +53,6 @@ from .constants import (
     ORDER_DETAIL_COLUMN_COUNT,
     ORDER_DETAIL_COLUMN_WIDTHS,
     ORDER_DETAIL_ROW_HEIGHT,
-    TEMPORARY_READONLY_COLUMNS,
     COLORS
 )
 
@@ -72,7 +70,6 @@ class OrderDetailPanel(QWidget):
     - E组: 产品细节（列30-38）
     - F组: 其他属性（列39-40）
     - 状态灯管理（4个圆点+文字）
-    - 临时产品只读控制
     
     信号：
     - cellDoubleClicked: 单元格双击（转发）
@@ -357,12 +354,6 @@ class OrderDetailPanel(QWidget):
         self._current_order = order
         self._current_items = items or []
 
-        # 2026-06-26: 同步订单总表的"保存正式纪录"按钮逻辑
-        # 有临时产品时不能转正式PI（订单总表保持一致）
-        self._has_temporary_items = any(
-            it.get('is_temporary', False) for it in self._current_items
-        )
-
         # 2026-06-23：进入订单时异步检查是否有正式PI（"保存正式记录" 后才允许采购/入库）
         # 先 reset 成 False，避免上一个订单状态串扰
         self._has_formal_record = False
@@ -386,11 +377,8 @@ class OrderDetailPanel(QWidget):
             row = self._table.rowCount()
             self._table.insertRow(row)
 
-            # 判断是否临时产品
-            is_temp = item.get('is_temporary', False)
-
             # [2026-06-16 需求 46] 完全按 Excel 41 字段填充
-            self._fill_excel_41_columns(row, idx, item, order, currency, is_temp)
+            self._fill_excel_41_columns(row, idx, item, order, currency)
 
             # 需求#43: 采购数量 vs 订单数量不匹配 → 整行淡红背景
             order_qty = item.get('quantity', 0) or 0
@@ -549,7 +537,7 @@ class OrderDetailPanel(QWidget):
             if cell:
                 cell.setFlags(cell.flags() & ~Qt.ItemIsSelectable)
 
-    def _fill_excel_41_columns(self, row, idx, item, order, currency, is_temp):
+    def _fill_excel_41_columns(self, row, idx, item, order, currency):
         """
         [2026-06-16 需求 46] 按 Excel 41 字段顺序填充表格列
 
@@ -612,7 +600,7 @@ class OrderDetailPanel(QWidget):
         # ===== 自动计算列本地补算（后端回填优先，缺值时本地算） =====
         # 2026-06-23：补齐 5 个自动计算列（16/20/35/36/38）回填逻辑。
         # 后端 _build_item_detail_v11 已用 snapshot_or_fallback 计算过，但快照可能为
-        # None（例如新导入未走 PO 流程的临时产品），此时前端用同一公式补算。
+        # None（例如新导入未走 PO 流程的产品），此时前端用同一公式补算。
         import math
         import re
 
@@ -740,16 +728,8 @@ class OrderDetailPanel(QWidget):
             or item.get('customer_product_no')
         )
         if not product_code:
-            if is_temp:
-                import json as _json
-                try:
-                    _td = _json.loads(item.get('temp_data', '{}')) if isinstance(item.get('temp_data'), str) else (item.get('temp_data') or {})
-                    product_code = _td.get('model') or item.get('oe_number') or '-'
-                except Exception:
-                    product_code = item.get('oe_number') or '-'
-            else:
-                product_code = '-'
-        setc(2, product_code, readonly=is_temp)
+            product_code = '-'
+        setc(2, product_code)
 
         # ===== Col 3: OE号 =====
         setc(3, g(item, 'oe_number') or g(item, 'oe_no'))
@@ -785,10 +765,10 @@ class OrderDetailPanel(QWidget):
         setc(7, g(item, 'customer_model') or g(item, 'cust_model') or g(item, 'oe_number'))
 
         # ===== Col 8: 产品特性 =====
-        setc(8, g(item, 'product_features') or g(item, 'product_feature'), readonly=is_temp)
+        setc(8, g(item, 'product_features') or g(item, 'product_feature'))
 
         # ===== Col 9: 数量 =====
-        setc(9, int(num(item, 'quantity', 0)), align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(9, int(num(item, 'quantity', 0)), align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 10: 报价(USD/RMB) =====
         # 2026-06-23：保留币种后缀显示（采购时通过顶部币种选择切换 USD/RMB）
@@ -808,15 +788,15 @@ class OrderDetailPanel(QWidget):
         setc(12, g(order, 'latest_customer_reply') or g(item, 'latest_reply'))
 
         # ===== Col 13: 客户预付款 =====
-        setc(13, f"{num(order, 'prepayment', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(13, f"{num(order, 'prepayment', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 14: 待收尾款 =====
-        setc(14, f"{num(order, 'final_payment', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(14, f"{num(order, 'final_payment', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 15: 预估美金报价 =====
         # 2026-06-23：后端字段名 estimated_usd（不是 estimated_usd_price），新增 estimated_usd_price 别名兜底
         est_usd = num(item, 'estimated_usd', 0) or num(item, 'estimated_usd_price', 0)
-        setc(15, f"{est_usd:.2f}" if est_usd else '-', align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(15, f"{est_usd:.2f}" if est_usd else '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 16: 预估毛利率 =====
         # 2026-06-23：后端字段名 profit_margin (0-100 百分比)，原代码读 estimated_margin (0-1) 单位错配导致显示成 2500% 之类。
@@ -828,39 +808,39 @@ class OrderDetailPanel(QWidget):
         if profit_margin:
             # 颜色阈值 20%：≥20% 绿色，<20% 不上色（与 Excel 模板一致）
             margin_color = '#059669' if profit_margin >= 20 else None
-            setc(16, f"{profit_margin:.1f}%", align=Qt.AlignRight | Qt.AlignVCenter, color=margin_color, readonly=is_temp)
+            setc(16, f"{profit_margin:.1f}%", align=Qt.AlignRight | Qt.AlignVCenter, color=margin_color)
         else:
-            setc(16, '-', align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+            setc(16, '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 17: 采购价格 =====
         purchase_price = num(item, 'purchase_price', 0) or num(item, 'factory_price', 0)
-        setc(17, f"{purchase_price:.2f}" if purchase_price else '-', align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(17, f"{purchase_price:.2f}" if purchase_price else '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 18: 运费 =====
         shipping = num(item, 'shipping_fee', 0) or num(order, 'shipping_fee', 0)
-        setc(18, f"{shipping:.2f}" if shipping else '-', align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(18, f"{shipping:.2f}" if shipping else '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 19: 杂费 =====
         misc = num(item, 'misc_fee', 0) or num(order, 'misc_fee', 0)
-        setc(19, f"{misc:.2f}" if misc else '-', align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(19, f"{misc:.2f}" if misc else '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 20: 总金额 =====
         # 2026-06-23：原代码用 purchase_qty 字段（item 中不存在）回退到 quantity，忽略后端预计算 total_order_amount。
         # 回填策略：后端 total_order_amount → 缺值时本地用 purchase_price × quantity + shipping + misc 计算
         cost_total = num(item, 'total_order_amount', 0) or _local_total_order_amount(item) or 0
-        setc(20, f"{cost_total:.2f}" if cost_total else '-', align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(20, f"{cost_total:.2f}" if cost_total else '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 21: 工厂简称 =====
-        setc(21, g(item, 'factory_short_name') or g(item, 'supplier_short_name') or g(item, 'supplier_name'), readonly=is_temp)
+        setc(21, g(item, 'factory_short_name') or g(item, 'supplier_short_name') or g(item, 'supplier_name'))
 
         # ===== Col 22: 店铺链接 =====
-        setc(22, g(item, 'supplier_url') or g(item, 'shop_url') or g(item, 'url'), readonly=is_temp)
+        setc(22, g(item, 'supplier_url') or g(item, 'shop_url') or g(item, 'url'))
 
         # ===== Col 23: 交货日期 =====
         delivery_date = g(item, 'delivery_date') or g(order, 'delivery_date')
         if delivery_date:
             delivery_date = str(delivery_date)[:10]
-        setc(23, delivery_date, align=Qt.AlignCenter, readonly=is_temp)
+        setc(23, delivery_date, align=Qt.AlignCenter)
 
         # ===== Col 24: 是否已收货 =====
         received = item.get('is_received') or order.get('is_received')
@@ -870,10 +850,10 @@ class OrderDetailPanel(QWidget):
             setc(24, '× 未收货', align=Qt.AlignCenter, color='#9ca3af')
 
         # ===== Col 25: 工厂订金 =====
-        setc(25, f"{num(item, 'factory_deposit', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(25, f"{num(item, 'factory_deposit', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 26: 工厂尾款 =====
-        setc(26, f"{num(item, 'factory_balance', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(26, f"{num(item, 'factory_balance', 0):.2f}", align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 27: 入库操作 =====
         # 2026-06-23 收敛：3 分支对应 storage_status 三值（已入库/部分入库/未入库）。
@@ -908,30 +888,30 @@ class OrderDetailPanel(QWidget):
             for k in ['packaging', 'packing_method', 'package_method', 'purchase_option_name', '1688_title', 'purchase_name', 'pack_spec']:
                 v = item.get(k) if isinstance(item, dict) else None
                 print(f"[DIAG-DetailPanel]   item.get({k!r}) = {v!r}")
-        setc(29, packaging_value, readonly=is_temp)
+        setc(29, packaging_value)
 
         # ===== Col 30: 采购选项/名称 =====
         purchase_value = g(item, 'purchase_option_name') or g(item, '1688_title') or g(item, 'purchase_name')
         if row not in self._diag_printed or True:  # 每次都打印
             print(f"[DIAG-DetailPanel] row={row} Col30采购选项 渲染值: {purchase_value!r}")
-        setc(30, purchase_value, readonly=is_temp)
+        setc(30, purchase_value)
 
         # ===== Col 31: 产品细节 =====
-        setc(31, g(item, 'product_details') or g(item, 'product_spec'), readonly=is_temp)
+        setc(31, g(item, 'product_details') or g(item, 'product_spec'))
 
         # ===== Col 32: 工厂编号 =====
-        setc(32, g(item, 'factory_code') or g(item, 'factory_sku') or g(item, 'factory_model'), readonly=is_temp)
+        setc(32, g(item, 'factory_code') or g(item, 'factory_sku') or g(item, 'factory_model'))
 
         # ===== Col 33: 纸箱尺寸 =====
-        setc(33, g(item, 'carton_size') or g(item, 'box_size'), readonly=is_temp)
+        setc(33, g(item, 'carton_size') or g(item, 'box_size'))
 
         # ===== Col 34: 打包规格 =====
         # 2026-06-23 修复：后端 _build_item_detail_v11 返回字段名是 packing_spec，
         # 不是 pack_spec；兼容两种 key
-        setc(34, g(item, 'pack_spec') or g(item, 'packing_spec') or g(item, 'pcs_per_carton'), readonly=is_temp)
+        setc(34, g(item, 'pack_spec') or g(item, 'packing_spec') or g(item, 'pcs_per_carton'))
 
         # ===== Col 35: 箱数 =====
-        # 2026-06-23：补齐本地补算（quantity + units_per_carton），保证新导入未走 PO 流程的临时产品也能算出来
+        # 2026-06-23：补齐本地补算（quantity + units_per_carton），保证新导入未走 PO 流程的产品也能算出来
         carton_count = num(item, 'carton_count', 0) or num(item, 'box_count', 0) or _local_carton_count(item) or 0
         setc(35, int(carton_count) if carton_count else '', align=Qt.AlignRight | Qt.AlignVCenter)
 
@@ -942,7 +922,7 @@ class OrderDetailPanel(QWidget):
 
         # ===== Col 37: 整箱毛重 =====
         carton_gw = num(item, 'carton_gross_weight', 0) or num(item, 'box_gw', 0) or num(item, 'gross_weight_kg', 0)
-        setc(37, f"{carton_gw:.2f} kg" if carton_gw else '-', align=Qt.AlignRight | Qt.AlignVCenter, readonly=is_temp)
+        setc(37, f"{carton_gw:.2f} kg" if carton_gw else '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 38: 总重量 =====
         # 2026-06-23：补齐本地补算（carton_count × carton_gross_weight_kg）
@@ -950,16 +930,16 @@ class OrderDetailPanel(QWidget):
         setc(38, f"{total_w:.2f} kg" if total_w else '-', align=Qt.AlignRight | Qt.AlignVCenter)
 
         # ===== Col 39: 品牌 =====
-        setc(39, g(item, 'brand') or g(item, 'product_brand'), readonly=is_temp)
+        setc(39, g(item, 'brand') or g(item, 'product_brand'))
 
         # ===== Col 40: 开票情况 =====
         invoice = g(item, 'invoice_type') or g(item, 'invoice_status') or g(order, 'invoice_type')
         if invoice in ('已上传', '已开', '已开票', '增票', '普票'):
-            setc(40, invoice, color=COLORS['invoice_paid'], readonly=is_temp)
+            setc(40, invoice, color=COLORS['invoice_paid'])
         elif invoice and invoice != '-':
-            setc(40, invoice, color=COLORS['invoice_unpaid'], readonly=is_temp)
+            setc(40, invoice, color=COLORS['invoice_unpaid'])
         else:
-            setc(40, invoice or '未上传', color=COLORS['muted'], readonly=is_temp)
+            setc(40, invoice or '未上传', color=COLORS['muted'])
 
     def _on_checkbox_changed(self, row, state):
         """复选框状态改变"""
@@ -999,10 +979,9 @@ class OrderDetailPanel(QWidget):
 
         item = items[row]
 
-        # 灯1: 产品类型（正式=绿色，临时=黄色）
-        is_temp = item.get('is_temporary', False)
-        color1 = '#22c55e' if not is_temp else '#fbbf24'
-        text1 = '正式' if not is_temp else '临时'
+        # 灯1: 产品类型（均为正式产品）
+        color1 = '#22c55e'
+        text1 = '正式'
 
         # 灯2: 采购状态（已采=蓝色，未采=灰色）
         # 判断依据：有采购价格 或 有采购单项ID 或 有供应商名称
@@ -1168,20 +1147,6 @@ class OrderDetailPanel(QWidget):
             return {}
         return self._current_items[row]
     
-    def is_temporary_product(self, item: dict) -> bool:
-        """判断是否为临时产品
-
-        2026-06-23 修复：优先用 is_temporary 布尔值（来自后端快照）；
-        其次 fallback 到 product_id 判断（临时产品 product_id 为 0 或 None，
-        即尚未关联 prd_customer_product 记录，无法采购/入库）。
-        """
-        if item.get('is_temporary') is True:
-            return True
-        product_id = item.get('product_id')
-        if product_id is None or product_id == 0:
-            return True
-        return False
-
     def _normalize_image_url(self, image_url: str) -> str:
         """把后端返回的相对路径（/images/xxx）补全为绝对 URL"""
         if not image_url:
@@ -1353,16 +1318,11 @@ class OrderDetailPanel(QWidget):
                 else:
                     self._purchase_btn.setToolTip("请先点击『保存正式记录』锁定PI后再采购")
             # 2026-06-23：同步更新"保存正式纪录"按钮（已保存过则禁用，防止重复覆盖）
-            # 2026-06-26：增加"有临时产品则不能转正式PI"判断（与订单总表保持一致）
             if hasattr(self, '_formal_btn'):
-                has_temp = getattr(self, '_has_temporary_items', False)
-                # 既不能已保存（防重复覆盖），也不能有临时产品
-                can_save = (not self._has_formal_record) and (not has_temp)
+                can_save = not self._has_formal_record
                 self._formal_btn.setEnabled(can_save)
                 if self._has_formal_record:
                     self._formal_btn.setToolTip("已保存正式纪录，PI 已锁定")
-                elif has_temp:
-                    self._formal_btn.setToolTip("订单内仍有临时产品，请先在产品管理中转正或删除后再保存正式纪录")
                 else:
                     self._formal_btn.setToolTip("请先点击此按钮保存正式纪录，锁定PI后再进行采购/入库操作")
             # 2026-06-26：正式PI 状态提示
@@ -1539,7 +1499,6 @@ class OrderDetailPanel(QWidget):
         item = self.get_item_at_row(row)
         if not item:
             return None
-        is_temp = self.is_temporary_product(item)
         is_purchased = self._is_item_purchased(item)
         # 2026-06-23：未保存正式PI 时禁止采购/入库（订单总表是动态报价，不适合留档）
         has_formal = self._has_formal_record
@@ -1547,7 +1506,7 @@ class OrderDetailPanel(QWidget):
 
         menu = QMenu(self)
         purchase_single = menu.addAction("采购该产品")
-        purchase_single.setEnabled(has_formal and not is_temp and not is_purchased)
+        purchase_single.setEnabled(has_formal and not is_purchased)
         if not has_formal:
             purchase_single.setToolTip(no_formal_hint)
         purchase_single.triggered.connect(
@@ -1555,7 +1514,7 @@ class OrderDetailPanel(QWidget):
         )
 
         purchase_repurchase = menu.addAction("重新采购")
-        purchase_repurchase.setEnabled(has_formal and not is_temp and is_purchased)
+        purchase_repurchase.setEnabled(has_formal and is_purchased)
         if not has_formal:
             purchase_repurchase.setToolTip(no_formal_hint)
         purchase_repurchase.triggered.connect(
@@ -1568,10 +1527,10 @@ class OrderDetailPanel(QWidget):
         # 检查库存记录状态（如果 API 返回了 inv_stock_type）
         inv_stock_type = item.get('inv_stock_type') or item.get('stock_type')
         is_inv_stocked = inv_stock_type == 3  # 3=已入库(绿)
-        
+
         menu.addSeparator()
         stock_in = menu.addAction("入库该产品")
-        can_inbound = has_formal and not is_temp and not is_stored and not is_inv_stocked
+        can_inbound = has_formal and not is_stored and not is_inv_stocked
         stock_in.setEnabled(can_inbound)
         if not has_formal:
             stock_in.setToolTip(no_formal_hint)
@@ -1587,7 +1546,7 @@ class OrderDetailPanel(QWidget):
         delete_action.setEnabled(True)
         delete_action.triggered.connect(lambda: self.deleteItemRequested.emit(row))
 
-        # 2026-06-23 新增：订单级缺货标记（对临时产品也可见可操作）
+        # 2026-06-23 新增：订单级缺货标记
         menu.addSeparator()
         order_storage = (self._current_order or {}).get('storage_status', '')
         if order_storage == '缺货':
