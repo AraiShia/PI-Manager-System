@@ -512,57 +512,47 @@ class OrderImportDialog(QDialog):
         if not self.preview_table:
             return
 
-        # [问题 #29] 初始化 preview_data 如果为空（手动添加时没有文件预览数据）
         if self.preview_data is None:
             self.preview_data = {'headers': [], 'rows': [], 'total': 0}
 
-        # 添加到 preview_data 中（用于导入时获取数据）
         self.preview_data['rows'].append(product_data)
         self.preview_data['total'] = len(self.preview_data['rows'])
 
-        # 如果预览表格为空，初始化列
         if self.preview_table.columnCount() == 0:
-            headers = ['行号', '客户产品编号', 'OE号', '产品描述', '数量', '单价', '状态']
+            headers = ['行号', '客户产品编号', 'OE号', '数量', '单价', '状态']
             self.preview_table.setColumnCount(len(headers))
             self.preview_table.setHorizontalHeaderLabels(headers)
 
-        # 添加新行
         row_idx = self.preview_table.rowCount()
         self.preview_table.insertRow(row_idx)
 
-        # 填充数据
         from PySide6.QtWidgets import QTableWidgetItem
         from PySide6.QtGui import QColor
 
         self.preview_table.setItem(row_idx, 0, QTableWidgetItem(str(row_idx + 1)))
         self.preview_table.setItem(row_idx, 1, QTableWidgetItem(product_data.get('customer_code', '')))
         self.preview_table.setItem(row_idx, 2, QTableWidgetItem(product_data.get('oe_number', '') or ''))
-        self.preview_table.setItem(row_idx, 3, QTableWidgetItem(product_data.get('detail_desc', '') or ''))
-        self.preview_table.setItem(row_idx, 4, QTableWidgetItem(str(product_data.get('quantity', 1))))
+        self.preview_table.setItem(row_idx, 3, QTableWidgetItem(str(product_data.get('quantity', 1))))
 
         price = product_data.get('unit_price')
         price_str = f"${price:.2f}" if price else ''
-        self.preview_table.setItem(row_idx, 5, QTableWidgetItem(price_str))
+        self.preview_table.setItem(row_idx, 4, QTableWidgetItem(price_str))
 
-        # 状态标识（均为正式产品）
         status_item = QTableWidgetItem('正式')
-        self.preview_table.setItem(row_idx, 6, status_item)
+        self.preview_table.setItem(row_idx, 5, status_item)
 
-        # 更新状态标签
         total_rows = self.preview_table.rowCount()
 
         self.preview_status_label.setText(
             f"共 {total_rows} 行数据（手动添加 {total_rows} 条）"
         )
 
-        # 启用导入按钮
         self.import_btn.setEnabled(True)
 
-        # 高亮新增行
         for col in range(self.preview_table.columnCount()):
             item = self.preview_table.item(row_idx, col)
             if item:
-                item.setBackground(QColor("#dbeafe"))  # 浅蓝色背景
+                item.setBackground(QColor("#dbeafe"))
 
         QMessageBox.information(
             self,
