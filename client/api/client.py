@@ -279,39 +279,6 @@ class ApiClient:
         """确认产品导入"""
         return self.patch(f"/products/{product_id}/confirm-import")
 
-    def confirm_temporary_product(self, product_id: int, product_data: Dict) -> Dict:
-        """将临时产品转为正式产品
-        
-        Args:
-            product_id: 产品ID
-            product_data: 完整的产品数据字典
-            
-        Returns:
-            更新后的产品数据字典
-            
-        Raises:
-            ValueError: 产品已被其他用户转正或不存在
-            requests.exceptions.Timeout: 网络超时
-        """
-        try:
-            response = self.session.post(
-                f"{self.base_url}/products/{product_id}/confirm",
-                json=product_data,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 409:
-                raise ValueError("该产品已被其他用户转正")
-            elif response.status_code == 404:
-                raise ValueError("产品不存在")
-            else:
-                raise Exception(f"转正失败: {response.status_code}")
-                
-        except requests.exceptions.Timeout:
-            raise Exception("网络超时，请检查网络连接")
-
     def cancel_product_import(self, product_id: int) -> Dict:
         """取消产品导入确认"""
         return self.patch(f"/products/{product_id}/cancel-import")
@@ -332,12 +299,6 @@ class ApiClient:
 
     def get_product_detail(self, product_id: int) -> Dict:
         return self.get(f"/products/{product_id}")
-
-    def create_temporary_product(self, data: dict) -> dict:
-        return self.post("/products/temporary", data)
-
-    def confirm_temporary_product(self, product_id: int, data: dict) -> dict:
-        return self.post(f"/products/{product_id}/confirm", data)
 
     def get_customers(self) -> List[Dict]:
         return self.get("/customers")
