@@ -45,6 +45,7 @@ from PySide6.QtGui import QColor, QBrush, QFont, QPixmap, QImage, QAction
 import urllib.request
 import concurrent.futures
 import threading
+from typing import Any, Dict, List
 
 from config import Config
 
@@ -475,6 +476,9 @@ class OrderDetailPanel(QWidget):
                     if cell:
                         cell.setBackground(bg)
 
+        # 新增：高亮重复行
+        self._apply_duplicate_highlight()
+
         self._table.setSortingEnabled(False)
 
         # 添加合计行
@@ -621,6 +625,62 @@ class OrderDetailPanel(QWidget):
             cell = self._table.item(row, col)
             if cell:
                 cell.setFlags(cell.flags() & ~Qt.ItemIsSelectable)
+
+    def _apply_duplicate_highlight(self):
+        """高亮订单详情中重复出现的行（按 product_id，缺失时回退 customer_code+oe_number）。"""
+        if not self._current_items:
+            return
+
+        pid_groups: Dict[Any, List[dict]] = {}
+        fallback_groups: Dict[str, List[dict]] = {}
+
+        for item in self._current_items:
+            product_id = item.get('product_id')
+            if product_id:
+                pid_groups.setdefault(product_id, []).append(item)
+            else:
+                key = f"{item.get('customer_code', '')}|{item.get('oe_number', '')}"
+                fallback_groups.setdefault(key, []).append(item)
+
+        duplicate_pids = {pid for pid, items in pid_groups.items() if len(items) > 1}
+        duplicate_fallbacks = {
+            key for key, items in fallback_groups.items() if len(items) > 1
+        }
+
+        yellow = QBrush(QColor("#fef3c7"))
+        red_name = QColor("#fff0f0").name().lower()
+
+        for row in range(self._table.rowCount()):
+            item0 = self._table.item(row, 0)
+            # 跳过合计行
+            if item0 and item0.text() == "📊 合计":
+                continue
+
+            if row >= len(self._current_items):
+                continue
+
+            item = self._current_items[row]
+            product_id = item.get('product_id')
+            fallback_key = f"{item.get('customer_code', '')}|{item.get('oe_number', '')}"
+            is_duplicate = (
+                product_id in duplicate_pids or fallback_key in duplicate_fallbacks
+            )
+
+            if not is_duplicate:
+                continue
+
+            for col in range(ORDER_DETAIL_COLUMN_COUNT):
+                cell = self._table.item(row, col)
+                if not cell:
+                    continue
+                # 不覆盖已存在的红色背景（采购数量不匹配）
+                bg_color = cell.background().color().name().lower()
+                if bg_color == red_name:
+                    continue
+                cell.setBackground(yellow)
+
+            if item0:
+                item0.setToolTip("该产品在订单中重复出现")
 
     def _fill_excel_41_columns(self, row, idx, item, order, currency):
         """
