@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -29,6 +29,9 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+# Worktrees
+.worktrees/
 
 # Large files
 *.rar
