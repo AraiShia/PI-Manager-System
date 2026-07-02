@@ -197,99 +197,19 @@ def create_customer_product(db: Session, data: CustomerProductCreate, dept_code:
     return customer_product
 
 
-# ============================================================
-# 2026-06-23 新增：导入时按 Model 幂等创建 temp
-# ============================================================
-def find_or_create_temp_customer_product(
-    db: Session,
-    customer_id: int,
-    row: dict,
-) -> Tuple[PrdCustomerProduct, bool]:
-    """按 customer_id + customer_model 查重，命中复用、未命中新建 temp。
-
-    用途：订单导入 / 补充商品流程中，为未匹配行静默创建临时产品。
-
-    Args:
-        customer_id: 客户 ID
-        row: 单行数据，应包含以下键（均可选）：
-            - customer_model / model: 客户型号（**去重键**，不参与 OE 去重）
-            - oe_number: OE 号（写入 PrdCustomerProductOE 子表）
-            - product_name / detail_desc: 产品名称
-            - customer_remark / remark: 客户备注
-            - unit_price / price_rmb: 人民币价格
-            - price_usd: 美元价格
-
-    Returns:
-        (product, created) 元组。created=True 表示本次新建，False 表示命中复用。
-    """
-    from schemas.customer_product import CustomerProductCreate
-    from models import CrmCustomer, PrdCustomerProduct, PrdCustomerProductOE
-    import uuid
-    from datetime import datetime
-
-    model = (row.get('customer_model') or row.get('model') or '').strip()
-
-    # 1. 按 customer_id + customer_model 查重（不参与 OE 去重；OE 跨类目可能重复）
-    if model:
-        existing = db.query(PrdCustomerProduct).filter(
-            PrdCustomerProduct.customer_id == customer_id,
-            PrdCustomerProduct.customer_model == model,
-        ).first()
-        if existing:
-            # 保守策略：命中即复用，不更新任何字段
-            return existing, False
-
-    # 2. 未命中 → 新建 temp
-    # 2026-06-23 修复：直接构造 PrdCustomerProduct 绕过 _generate_system_code
-    # （该函数有 base36 编码 bug，已有 ME9S01260000 时重复生成同 code）
-    # 这里手写 system_code：<customer_code>S<cat>YY<uuid6>，保证唯一。
-    customer = db.query(CrmCustomer).filter(CrmCustomer.id == customer_id).first()
-    customer_code = (customer.customer_code if customer else "TMP")[:8]
-    year = str(datetime.now().year)[-2:]
-    cat = "01"  # temp 默认 category
-    system_code = f"{customer_code}S{cat}{year}{uuid.uuid4().hex[:6].upper()}"
-
-    oe = (row.get('oe_number') or '').strip() or None
-    product = PrdCustomerProduct(
-        customer_id=customer_id,
-        system_code=system_code,
-        product_name=(row.get('product_name') or row.get('detail_desc') or '').strip() or None,
-        customer_model=model or None,
-        customer_remark=(row.get('customer_remark') or row.get('remark') or '').strip() or None,
-        price_rmb=row.get('unit_price') or row.get('price_rmb'),
-        price_usd=row.get('price_usd'),
-        is_temporary=True,
-        is_active=True,
-    )
-    db.add(product)
-    db.flush()  # 触发主键分配
-
-    if oe:
-        db.add(PrdCustomerProductOE(
-            customer_product_id=product.id,
-            oe_number=oe,
-            is_primary=True,
-        ))
-
-    db.commit()
-    db.refresh(product)
-    return product, True
-
-
 def get_customer_products(
     db: Session,
     customer_id: Optional[int] = None,
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
-    is_temporary: Optional[bool] = None,  # Phase 2: 支持临时/正式筛选
 ) -> Tuple[List[PrdCustomerProduct], int]:
-    """获取客户产品列表（支持临时/正式产品筛选）"""
+    """获取客户产品列表"""
     import logging
     logger = logging.getLogger(__name__)
 
     logger.info(f"[CP查询-DEBUG] ===== get_customer_products 开始 =====")
-    logger.info(f"[CP查询-DEBUG] 查询参数: customer_id={customer_id}, search={search!r}, skip={skip}, limit={limit}, is_temporary={is_temporary}")
+    logger.info(f"[CP查询-DEBUG] 查询参数: customer_id={customer_id}, search={search!r}, skip={skip}, limit={limit}")
 
     query = db.query(PrdCustomerProduct).filter(PrdCustomerProduct.is_active == True)
     logger.info(f"[CP查询-DEBUG] 基础查询: is_active=True")
@@ -297,11 +217,6 @@ def get_customer_products(
     if customer_id:
         query = query.filter(PrdCustomerProduct.customer_id == customer_id)
         logger.info(f"[CP查询-DEBUG] 添加筛选: customer_id={customer_id}")
-
-    # Phase 2: 按临时/正式产品筛选
-    if is_temporary is not None:
-        query = query.filter(PrdCustomerProduct.is_temporary == is_temporary)
-        logger.info(f"[CP查询-DEBUG] 添加筛选: is_temporary={is_temporary}")
 
     if search:
         # 搜索产品名称、客户型号、编号、OE号
@@ -387,200 +302,6 @@ def update_customer_product(db: Session, product_id: int, data: CustomerProductU
     db.commit()
     db.refresh(customer_product)
     return customer_product
-
-
-# ============ Phase 2: 临时产品相关 ============
-
-def convert_temporary_to_official(db: Session, product_id: int) -> Optional[PrdCustomerProduct]:
-    """
-    将临时产品转正（is_temporary=False）
-    Phase 2 新增：单表操作，不涉及 prd_product
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-
-    convert_start = datetime.now()
-    logger.info(f"\n{'═' * 80}")
-    logger.info(f"[🔄 产品转正流程开始] convert_temporary_to_official()")
-    logger.info(f"{'═' * 80}")
-    logger.info(f"  参数: product_id={product_id}")
-
-    customer_product = get_customer_product(db, product_id)
-    if not customer_product:
-        logger.error(f"[❌ 转正失败] 产品不存在: product_id={product_id}")
-        return None
-
-    logger.info(f"[步骤1/3] 查询产品信息")
-    logger.info(f"  产品ID: {customer_product.id}")
-    logger.info(f"  客户型号: {customer_product.customer_model}")
-    logger.info(f"  产品名称: {customer_product.product_name}")
-    logger.info(f"  当前状态: {'临时产品' if customer_product.is_temporary else '正式产品'}")
-
-    if not customer_product.is_temporary:
-        # 已经是正式产品，直接返回
-        logger.info(f"[✅ 跳过转正] 该产品已经是正式产品，无需转正")
-        return customer_product
-
-    logger.info(f"[步骤2/3] 执行转正操作 - is_temporary: True → False")
-    customer_product.is_temporary = False
-    db.commit()
-    db.refresh(customer_product)
-
-    convert_duration = (datetime.now() - convert_start).total_seconds()
-
-    logger.info(f"[步骤3/3] 转正完成验证")
-    logger.info(f"  更新后状态: {'临时产品' if customer_product.is_temporary else '正式产品 ✓'}")
-    logger.info(f"  更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"\n{'═' * 80}")
-    logger.info(f"[✅ 产品转正成功]")
-    logger.info(f"  Product ID: {product_id}")
-    logger.info(f"  客户型号: {customer_product.customer_model}")
-    logger.info(f"  耗时: {convert_duration:.3f}s")
-    logger.info(f"{'═' * 80}\n")
-
-    return customer_product
-
-
-def update_and_confirm_temporary(
-    db: Session,
-    product_id: int,
-    full_data: dict,
-) -> Optional[PrdCustomerProduct]:
-    """2026-06-16 修复 log.txt 404：临时产品转正 + 更新字段
-
-    替代已删除的 `crud/product.py::confirm_temporary_product`（Phase 5 后 PrdProduct 表已删除）。
-    此函数直接更新 PrdCustomerProduct 记录并清除 `is_temporary` 标记。
-
-    支持的 full_data 字段：
-        - product_name, oe_number (→ customer_model 默认), brand, color
-        - detail_desc, customer_remark, category_id
-        - price_usd, price_rmb
-        - default_image_url (→ image_url), sub_images (JSON 字符串)
-        - customer_model, dept_id
-        - customer_id（转正后允许切换客户，否则保持）
-
-    Returns:
-        更新后的 PrdCustomerProduct，None 表示产品不存在
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-
-    logger.info(f"[转正-Phase5-兼容] update_and_confirm_temporary product_id={product_id}")
-
-    customer_product = get_customer_product(db, product_id)
-    if not customer_product:
-        logger.error(f"[转正失败] 产品不存在: product_id={product_id}")
-        return None
-
-    if not customer_product.is_temporary:
-        logger.info(f"[转正-跳过] 已经是正式产品，直接更新字段")
-    else:
-        customer_product.is_temporary = False
-        logger.info(f"[转正] is_temporary: True → False")
-
-    # 更新字段（白名单：只允许更新存在的列）
-    _ALLOWED = {
-        "product_name", "customer_model", "color", "customer_remark",
-        "category_id", "price_usd", "price_rmb",
-        "detail_desc", "brand", "specifications",
-        "image_url", "sub_images",
-    }
-    for key, val in (full_data or {}).items():
-        if key in _ALLOWED and val is not None:
-            setattr(customer_product, key, val)
-
-    # 兼容旧字段映射
-    if "default_image_url" in (full_data or {}) and full_data["default_image_url"]:
-        customer_product.image_url = full_data["default_image_url"]
-
-    # 2026-06-23：OE 号支持列表（oe_numbers）+ 兼容单字段（oe_number）
-    # 修复：之前只存一个 oe_number 字段，用户在 Dialog 加的 TESTOE1/TESTOE2 全部丢失
-    from models.customer_product_oe import PrdCustomerProductOE
-    oe_list: list[str] = []
-    if full_data.get("oe_numbers"):
-        oe_list = [str(x).strip() for x in full_data["oe_numbers"] if x]
-    elif full_data.get("oe_number"):
-        oe_list = [str(full_data["oe_number"]).strip()]
-
-    for idx, oe_val in enumerate(oe_list):
-        if not oe_val:
-            continue
-        # 第一次写入时同步 customer_model
-        if idx == 0 and not customer_product.customer_model:
-            customer_product.customer_model = oe_val
-        existing_oe = db.query(PrdCustomerProductOE).filter(
-            PrdCustomerProductOE.customer_product_id == product_id,
-            PrdCustomerProductOE.oe_number == oe_val,
-        ).first()
-        if not existing_oe:
-            new_oe = PrdCustomerProductOE(
-                customer_product_id=product_id,
-                oe_number=oe_val,
-                # 第一个 OE 设为主 OE；用户可后续在编辑界面切换
-                is_primary=(idx == 0),
-            )
-            db.add(new_oe)
-        else:
-            # 已存在：确保主标记正确
-            if idx == 0:
-                existing_oe.is_primary = True
-
-    # 2026-06-23：客户产品编号也支持列表（customer_codes）+ 兼容单字段（product_code）
-    # 修复：之前转正根本不写 prd_customer_product_code 表
-    from models.customer_product_code import PrdCustomerProductCode
-    code_list: list[str] = []
-    if full_data.get("customer_codes"):
-        code_list = [str(x).strip() for x in full_data["customer_codes"] if x]
-    elif full_data.get("product_code"):
-        code_list = [str(full_data["product_code"]).strip()]
-
-    for idx, code_val in enumerate(code_list):
-        if not code_val:
-            continue
-        existing_code = db.query(PrdCustomerProductCode).filter(
-            PrdCustomerProductCode.customer_product_id == product_id,
-            PrdCustomerProductCode.product_code == code_val,
-        ).first()
-        if not existing_code:
-            new_code = PrdCustomerProductCode(
-                customer_product_id=product_id,
-                product_code=code_val,
-                is_primary=(idx == 0),
-            )
-            db.add(new_code)
-
-    # 生成系统编号（如果还没有）
-    if not customer_product.system_code:
-        try:
-            customer_id = customer_product.customer_id
-            category_id = customer_product.category_id or '01'
-            new_code = _generate_system_code(db, customer_id, category_id)
-            if new_code:
-                customer_product.system_code = new_code
-        except Exception as e:
-            logger.warning(f"[转正-系统编号生成失败] {e}（不影响转正）")
-
-    db.commit()
-    db.refresh(customer_product)
-
-    logger.info(f"[✅ 转正+更新成功] product_id={product_id} system_code={customer_product.system_code}")
-    return customer_product
-
-
-def get_temporary_products(
-    db: Session,
-    customer_id: Optional[int] = None,
-    skip: int = 0,
-    limit: int = 100,
-) -> Tuple[List[PrdCustomerProduct], int]:
-    """获取临时产品列表（Phase 2 新增）"""
-    return get_customer_products(
-        db,
-        customer_id=customer_id,
-        skip=skip,
-        limit=limit,
-        is_temporary=True,
-    )
 
 
 def delete_customer_product(db: Session, product_id: int, soft_only: bool = True) -> dict:
