@@ -639,8 +639,11 @@ class OrderDetailPanel(QWidget):
             if product_id:
                 pid_groups.setdefault(product_id, []).append(item)
             else:
-                key = f"{item.get('customer_code', '')}|{item.get('oe_number', '')}"
-                fallback_groups.setdefault(key, []).append(item)
+                code = item.get('customer_code') or ''
+                oe = item.get('oe_number') or ''
+                if code or oe:
+                    key = f"{code}|{oe}"
+                    fallback_groups.setdefault(key, []).append(item)
 
         duplicate_pids = {pid for pid, items in pid_groups.items() if len(items) > 1}
         duplicate_fallbacks = {
