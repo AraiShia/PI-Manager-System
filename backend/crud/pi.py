@@ -1283,6 +1283,127 @@ def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaIn
     return db_item
 
 
+def change_pi_item_supplier(db: Session, item_id: int, supplier_data: dict) -> dict:
+    """更换 PI item 的供应商/采购信息，并重新生成采购单。
+
+    约束：
+    - 必须已存在采购单（否则不允许调用）。
+    - 若原采购单已收货/已入库，拒绝更换。
+    - 删除原采购单及采购项，创建新采购单，并同步更新库存记录中的 po_id/supplier_id。
+    """
+    from models import PoPurchaseOrder, InvInventory
+    from crud.purchase import create_grouped_purchase_orders
+    from schemas.purchase import PurchaseOrderCreate, PurchaseOrderItemCreate
+
+    db_item = get_pi_item(db, item_id)
+    if not db_item:
+        raise ValueError("订单项不存在")
+
+    # 1. 查找当前采购单
+    old_po_items = db.query(PoPurchaseOrderItem).filter(
+        PoPurchaseOrderItem.pi_item_id == item_id
+    ).all()
+    if not old_po_items:
+        raise ValueError("该订单项尚未生成采购单")
+
+    old_po_item = old_po_items[0]
+    old_po = db.query(PoPurchaseOrder).filter(
+        PoPurchaseOrder.id == old_po_item.po_id
+    ).first()
+    if not old_po:
+        raise ValueError("关联采购单不存在")
+
+    # 2. 检查是否可更换
+    if old_po_item.inbound_status not in (None, 1):
+        raise ValueError("采购单已入库或已收货，无法更换供应商")
+
+    # 3. 更新 PI item 字段
+    field_map = {
+        "supplier_name": "supplier_name",
+        "factory_short_name": "supplier_name",
+        "shop_url": "shop_url",
+        "line_1688_url": "shop_url",
+        "factory_code": "factory_code",
+        "brand": "brand",
+        "purchase_price": "purchase_price",
+        "factory_price": "purchase_price",
+        "factory_deposit": "factory_deposit",
+        "factory_balance": "factory_balance",
+        "invoice_status": "invoice_status",
+    }
+    for src, dst in field_map.items():
+        if src in supplier_data and supplier_data[src] is not None:
+            if src in ("purchase_price", "factory_price", "factory_deposit", "factory_balance"):
+                setattr(db_item, dst, float(supplier_data[src]))
+            else:
+                setattr(db_item, dst, supplier_data[src])
+
+    # 4. 获取或创建供应商
+    supplier_name = supplier_data.get("supplier_name") or supplier_data.get("factory_short_name") or db_item.supplier_name
+    if not supplier_name:
+        raise ValueError("供应商名称不能为空")
+
+    supplier = db.query(SupSupplier).filter(SupSupplier.supplier_name == supplier_name).first()
+    if not supplier:
+        # 生成唯一 supplier_code
+        base_code = supplier_name[:20] if supplier_name else "NEW"
+        supplier_code = base_code
+        suffix = 1
+        while db.query(SupSupplier).filter(SupSupplier.supplier_code == supplier_code).first():
+            supplier_code = f"{base_code}_{suffix}"
+            suffix += 1
+        supplier = SupSupplier(
+            dept_id=old_po.dept_id,
+            supplier_code=supplier_code,
+            supplier_name=supplier_name,
+            status=1,
+        )
+        db.add(supplier)
+        db.flush()
+        db.refresh(supplier)
+
+    # 5. 记录旧 PO ID，删除旧采购单（级联删除 items）
+    old_po_id = old_po.id
+    db.delete(old_po)
+    db.flush()
+
+    # 6. 创建新采购单
+    purchase = PurchaseOrderCreate(
+        pi_id=db_item.pi_id,
+        dept_id=old_po.dept_id,
+        supplier_id=supplier.id,
+        currency=old_po.currency or "USD",
+        items=[
+            PurchaseOrderItemCreate(
+                pi_item_id=db_item.id,
+                product_id=db_item.product_id,
+                quantity=float(db_item.quantity or 0),
+                unit_price=float(db_item.purchase_price or 0),
+                link=db_item.shop_url,
+                factory_code=db_item.factory_code,
+            )
+        ],
+    )
+    new_orders = create_grouped_purchase_orders(db, purchase)
+    new_po_id = new_orders[0].id if new_orders else None
+
+    # 7. 库存联动：更新库存记录中的 po_id 和 supplier_id
+    if new_po_id:
+        inv_records = db.query(InvInventory).filter(
+            InvInventory.pi_id == db_item.pi_id,
+            InvInventory.product_id == db_item.product_id,
+            InvInventory.po_id == old_po_id
+        ).all()
+        for inv in inv_records:
+            inv.po_id = new_po_id
+            inv.supplier_id = supplier.id
+            inv.purchase_price = db_item.purchase_price
+        if inv_records:
+            db.flush()
+
+    return {"success": True, "new_po_id": new_po_id, "old_po_id": old_po_id}
+
+
 # 2026-06-12 需求#40：软删除 / 入库 CRUD
 def delete_pi_item(db: Session, item_id: int) -> PiProformaInvoiceItem | None:
     """软删除 PI 单品（设置 is_deleted=True）"""
