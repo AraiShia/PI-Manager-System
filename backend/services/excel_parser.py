@@ -41,24 +41,37 @@ class ExcelParser:
         
         Returns:
             Dict: 包含 headers, preview_rows, total_rows, column_count
+        
+        🔧 2026-07-02 修复：单行数据异常时跳过该行而不是整个文件失败
         """
-        workbook = load_workbook(BytesIO(content))
+        workbook = load_workbook(BytesIO(content), data_only=True, read_only=False)
         sheet = workbook.active
         
         # 获取表头
         headers = []
-        for cell in sheet[1]:
-            headers.append(str(cell.value) if cell.value else '')
+        try:
+            for cell in sheet[1]:
+                headers.append(str(cell.value) if cell.value else '')
+        except Exception as e:
+            print(f"[WARN] 读取表头失败: {e}")
+            headers = []
         
         # 获取预览数据
         preview_rows = []
         row_count = min(sheet.max_row - 1, max_rows)  # 减1是因为有表头
         
         for row_idx in range(2, row_count + 2):  # 从第2行开始
-            row_data = []
-            for cell in sheet[row_idx]:
-                row_data.append(self._format_cell_value(cell.value))
-            preview_rows.append(row_data)
+            try:
+                row_data = []
+                for cell in sheet[row_idx]:
+                    row_data.append(self._format_cell_value(cell.value))
+                # 跳过完全空白的行
+                if any(v.strip() if isinstance(v, str) else v for v in row_data):
+                    preview_rows.append(row_data)
+            except Exception as e:
+                # 🔧 2026-07-02 修复：单行数据异常时跳过该行，不影响整个文件
+                print(f"[WARN] 跳过异常行 {row_idx}: {e}")
+                continue
         
         return {
             'headers': headers,
@@ -76,14 +89,22 @@ class ExcelParser:
         
         Returns:
             List[List[str]]: 所有行数据
+        
+        🔧 2026-07-02 修复：单行数据异常时跳过该行
         """
-        workbook = load_workbook(BytesIO(content))
+        workbook = load_workbook(BytesIO(content), data_only=True, read_only=False)
         sheet = workbook.active
         
         rows = []
-        for row in sheet.iter_rows(values_only=True):
-            row_data = [self._format_cell_value(cell) for cell in row]
-            rows.append(row_data)
+        for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            try:
+                row_data = [self._format_cell_value(cell) for cell in row]
+                # 跳过完全空白的行
+                if any(v.strip() if isinstance(v, str) else v for v in row_data):
+                    rows.append(row_data)
+            except Exception as e:
+                print(f"[WARN] 跳过异常行 {row_idx}: {e}")
+                continue
         
         return rows
     
@@ -101,21 +122,27 @@ class ExcelParser:
         
         Returns:
             List[Dict]: 映射后的数据列表
+        
+        🔧 2026-07-02 修复：单行数据异常时跳过该行
         """
-        workbook = load_workbook(BytesIO(content))
+        workbook = load_workbook(BytesIO(content), data_only=True, read_only=False)
         sheet = workbook.active
         
         rows = []
         for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
             if row_idx == 1:  # 跳过表头
                 continue
-            
-            row_data = {}
-            for col_idx, field_name in column_mapping.items():
-                if col_idx < len(row):
-                    row_data[field_name] = self._format_cell_value(row[col_idx])
-            
-            rows.append(row_data)
+            try:
+                row_data = {}
+                for col_idx, field_name in column_mapping.items():
+                    if col_idx < len(row):
+                        row_data[field_name] = self._format_cell_value(row[col_idx])
+                # 跳过完全空白的行
+                if any(v.strip() if isinstance(v, str) else v for v in row_data.values()):
+                    rows.append(row_data)
+            except Exception as e:
+                print(f"[WARN] 跳过异常行 {row_idx}: {e}")
+                continue
         
         return rows
     
