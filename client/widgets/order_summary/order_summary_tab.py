@@ -578,7 +578,6 @@ class OrderSummaryTab(QWidget):
                     ('product_count', 'n'), ('item_count', 'n'),
                     ('paid_amount', 'n'), ('storage_status', 's'),
                     ('has_inventory', 'b'), ('inventory_quantity', 'n'),
-                    ('has_temporary_items', 'b'), ('temporary_item_count', 'n'),
                     ('items', 'l'),
                 ]
                 

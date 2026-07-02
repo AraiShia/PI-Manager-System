@@ -42,7 +42,7 @@ def read_pi_list(skip: int = 0, limit: int = 100, status: int = None, db: Sessio
     from models import PiPaymentStage as _PS
     from models import PrdCustomerProduct
     results = get_pi_invoices_with_customer(db, skip=skip, limit=limit, status=status)
-    # 2026-06-10: 修复 T5.3 + 总表回填 — 加上日期/产品数/已付金额/库存/临时产品等字段
+    # 2026-06-10: 修复 T5.3 + 总表回填 — 加上日期/产品数/已付金额/库存等字段
     for r in results:
         pi_id = r.get("id")
         if not pi_id:

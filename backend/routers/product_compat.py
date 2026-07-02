@@ -44,7 +44,6 @@ class CompatProductItem(BaseModel):
     product_name: Optional[str] = None
     customer_model: Optional[str] = None
     color: Optional[str] = None
-    # 2026-06-23 修复：转正回调需要的字段
     customer_remark: Optional[str] = None
     detail_desc: Optional[str] = None
     brand: Optional[str] = None
