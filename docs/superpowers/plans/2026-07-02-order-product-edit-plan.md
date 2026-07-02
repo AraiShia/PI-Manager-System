@@ -3,9 +3,9 @@
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
-**目标：** 为订单详情表格的产品项添加完整的编辑能力：简单字段表格内联编辑、编辑产品 Dialog（768×1280）负责产品与包装信息、更换供应商 Dialog 负责采购/供应商信息、右键菜单新增采购快照与访问店铺网站入口。
+**目标：** 为订单详情表格的产品项添加完整的编辑能力：简单字段表格内联编辑、复用现有订单编辑 Dialog（768×1280）负责产品与包装信息、更换供应商 Dialog 负责采购/供应商信息、右键菜单新增采购快照与访问店铺网站入口。
 
-**架构：** 在 `order_detail_panel.py` 中扩展表格编辑标志与右键菜单，新增/重构 `product_item_edit_dialog.py` 作为完整编辑 Dialog，新增 `supplier_change_dialog.py` 作为更换供应商 Dialog，复用 `PUT /pi/items/{item_id}` 进行字段保存，并在后端新增采购单重新生成与库存联动逻辑。
+**架构：** 在 `order_detail_panel.py` 中扩展表格编辑标志与右键菜单，复用并扩展 `order_summary_edit_dialog.py` 中的 `OrderSummaryEditDialog`，新增 `supplier_change_dialog.py` 作为更换供应商 Dialog，复用 `PUT /pi/items/{item_id}` 进行字段保存，并在后端新增采购单重新生成与库存联动逻辑。
 
 **技术栈：** PySide6（前端）、FastAPI + SQLAlchemy（后端）、SQLite（数据库）。
 
@@ -16,7 +16,7 @@
 | 文件 | 职责 |
 |---|---|
 | `client/widgets/order_summary/order_detail_panel.py` | 订单详情表格。设置可编辑列、处理失焦保存、扩展右键菜单、转发 Dialog 打开信号。 |
-| `client/widgets/product_item_edit_dialog.py` | 编辑产品 Dialog（768×1280）。显示所有字段，可编辑字段按状态启用/禁用，采购/供应商字段锁定显示并带入口按钮。 |
+| `client/widgets/order_summary_edit_dialog.py` | 复用现有订单编辑 Dialog，扩展缺失字段，调整尺寸至 768×1280，增加状态锁定与列高亮。 |
 | `client/widgets/supplier_change_dialog.py` | 更换供应商 Dialog。编辑采购/工厂/供应商/开票字段，保存后重新生成采购单。 |
 | `client/widgets/purchase_snapshot_dialog.py` | 采购快照 Dialog。只读展示当前采购状态。 |
 | `client/api/client.py` | 已包含 `update_pi_item(item_id, data)`；新增 `change_supplier(item_id, data)`。 |
@@ -517,123 +517,192 @@ git commit -m "feat(client): add SupplierChangeDialog"
 
 ---
 
-## 任务 6：重构 `ProductItemEditDialog`
+## 任务 6：扩展 `OrderSummaryEditDialog`
 
 **文件：**
-- 修改：`client/widgets/product_item_edit_dialog.py`（完全重写）
+- 修改：`client/widgets/order_summary_edit_dialog.py`
 
-- [ ] **步骤 1：完全重写 `ProductItemEditDialog`**
+复用现有 `OrderSummaryEditDialog`，在其现有 Area 基础上扩展字段，调整尺寸，增加锁定与高亮逻辑。
 
-新的 Dialog 尺寸 768×1280，包含基础信息、财务、数量日期、包装规格、采购/供应商 Area、客户回复 Area。
+- [ ] **步骤 1：修改 `__init__` 接受新参数并调整尺寸**
 
 ```python
-# -*- coding: utf-8 -*-
-"""编辑订单产品项对话框（完整版）"""
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QDoubleSpinBox, QPushButton, QFormLayout, QMessageBox,
-    QComboBox, QDateEdit, QScrollArea, QWidget, QTextEdit,
-    QFileDialog
-)
-from PySide6.QtCore import Qt, QDate
-from PySide6.QtGui import QDesktopServices, QUrl
-
-
-class ProductItemEditDialog(QDialog):
+class OrderSummaryEditDialog(QDialog):
     COLUMN_TO_FIELD = {
-        2: "customer_code",
-        3: "oe_number",
-        4: "remark",
-        5: "product_name",
-        6: "image_url",
-        7: "customer_model",
-        8: "product_feature",
-        9: "quantity",
-        10: "unit_price",
-        13: "customer_prepayment",
-        14: "remaining_payment",
-        18: "shipping_fee",
-        19: "misc_fee",
-        23: "delivery_date",
-        29: "packaging",
-        30: "purchase_option_name",
-        31: "product_detail",
-        33: "carton_size",
-        34: "pack_spec",
-        37: "carton_gross_weight",
+        2: "customer_product_code_edit",
+        3: "oe_number_edit",
+        4: "remark_edit",
+        5: "product_name_edit",
+        6: "image_path_label",
+        7: "customer_model_edit",
+        8: "product_feature_edit",
+        9: "quantity_edit",
+        10: "unit_price_edit",
+        13: "customer_prepayment_edit",
+        14: "remaining_payment_edit",
+        18: "shipping_fee_edit",
+        19: "misc_fee_edit",
+        23: "delivery_date_edit",
+        29: "packing_mode_group",
+        30: "purchase_channel_edit",
+        31: "product_detail_edit",
+        33: "carton_length_edit",
+        34: "units_per_box_spin",
+        37: "gross_weight_edit",
     }
 
-    def __init__(self, item: dict, api_client=None, focus_column: int = None, has_formal: bool = False, is_purchased: bool = False, parent=None):
+    def __init__(self, order_item, api_client, parent=None, order=None,
+                 focus_column: int = None, has_formal: bool = False, is_purchased: bool = False):
         super().__init__(parent)
-        self.item = item.copy()
+        self.order_item = order_item
+        self.order = order
         self.api_client = api_client
         self.focus_column = focus_column
         self.has_formal = has_formal
         self.is_purchased = is_purchased
-        self.setWindowTitle("编辑产品")
+        # ... 原有初始化 ...
+        self.setMinimumSize(768, 1280)
         self.resize(768, 1280)
-        self._editors = {}
-        self._init_ui()
+        # ... 原有初始化 ...
+        self._setup_ui()
+        self._apply_locks()
         self._apply_focus()
+```
 
-    def _init_ui(self):
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        container = QWidget()
-        layout = QVBoxLayout(container)
+- [ ] **步骤 2：在产品信息 Area 添加缺失字段**
 
-        # 基础信息
-        layout.addWidget(QLabel("<b>基础信息</b>"))
-        base_form = QFormLayout()
-        self._add_line_edit(base_form, "customer_code", "客户产品编号", self.item.get("customer_code", ""))
-        self._add_line_edit(base_form, "oe_number", "OE号", self.item.get("oe_number", ""))
-        self._add_line_edit(base_form, "remark", "客户需求/产品备注", self.item.get("remark", ""))
-        self._add_line_edit(base_form, "product_name", "产品名称", self.item.get("product_name", self.item.get("detail_desc", "")))
-        self._add_image_field(layout)
-        self._add_line_edit(base_form, "customer_model", "客户型号", self.item.get("customer_model", ""))
-        self._add_line_edit(base_form, "product_feature", "产品特性", self.item.get("product_feature", ""))
-        layout.addLayout(base_form)
+在 `_create_product_area` 中，在"产品名称"之后、"数量"之前插入：
 
-        # 数量与日期
-        layout.addWidget(QLabel("<b>数量与日期</b>"))
-        qty_form = QFormLayout()
-        self._add_spin(qty_form, "quantity", "数量", self.item.get("quantity", 0))
-        self._add_date(qty_form, "delivery_date", "交货日期", self.item.get("delivery_date"))
-        layout.addLayout(qty_form)
+```python
+        self.customer_product_code_edit = QLineEdit(self.order_data.get('customer_code', ''))
+        layout.addRow("客户产品编号:", self.customer_product_code_edit)
 
-        # 财务
-        layout.addWidget(QLabel("<b>财务</b>"))
-        fin_form = QFormLayout()
-        self._add_spin(fin_form, "unit_price", "报价", self.item.get("unit_price", 0))
-        self._add_spin(fin_form, "customer_prepayment", "客户预付款", self.item.get("customer_prepayment", 0))
-        self._add_spin(fin_form, "remaining_payment", "待收尾款", self.item.get("remaining_payment", 0))
-        self._add_spin(fin_form, "shipping_fee", "运费", self.item.get("shipping_fee", 0))
-        self._add_spin(fin_form, "misc_fee", "杂费", self.item.get("misc_fee", 0))
-        layout.addLayout(fin_form)
+        # 图片
+        img_row = QWidget()
+        img_layout = QHBoxLayout(img_row)
+        img_layout.setContentsMargins(0, 0, 0, 0)
+        self.image_path_label = QLabel(self.order_data.get('image_url') or self.order_data.get('default_image_url', ''))
+        self.image_path_label.setWordWrap(True)
+        img_layout.addWidget(self.image_path_label)
+        upload_btn = QPushButton("上传图片")
+        upload_btn.clicked.connect(self._upload_image)
+        img_layout.addWidget(upload_btn)
+        clear_btn = QPushButton("清除图片")
+        clear_btn.clicked.connect(self._clear_image)
+        img_layout.addWidget(clear_btn)
+        layout.addRow("图片:", img_row)
 
-        # 包装规格
-        layout.addWidget(QLabel("<b>包装规格</b>"))
-        pack_form = QFormLayout()
-        self._add_combo(pack_form, "packaging", "包装方式", ["1件/箱", "多件/箱", "1件多箱"], self.item.get("packaging", ""))
-        self._add_line_edit(pack_form, "purchase_option_name", "采购选项/名称", self.item.get("purchase_option_name", ""))
-        self._add_line_edit(pack_form, "product_detail", "产品细节", self.item.get("product_detail", ""))
-        self._add_line_edit(pack_form, "carton_size", "纸箱尺寸", self.item.get("carton_size", ""))
-        self._add_line_edit(pack_form, "pack_spec", "打包规格", self.item.get("pack_spec", ""))
-        self._add_spin(pack_form, "carton_gross_weight", "整箱毛重", self.item.get("carton_gross_weight", 0))
-        layout.addLayout(pack_form)
+        self.customer_model_edit = QLineEdit(self.order_data.get('customer_model', ''))
+        layout.addRow("客户型号:", self.customer_model_edit)
 
-        # 采购/供应商 Area（锁定显示 + 按钮）
-        layout.addWidget(QLabel("<b>采购/供应商信息</b>"))
-        supplier_form = QFormLayout()
-        self._add_readonly_line(supplier_form, "supplier_name", "工厂简称", self.item.get("supplier_name", ""))
-        self._add_readonly_line(supplier_form, "shop_url", "店铺链接", self.item.get("shop_url", ""))
-        self._add_readonly_line(supplier_form, "factory_code", "工厂编号", self.item.get("factory_code", ""))
-        self._add_readonly_line(supplier_form, "brand", "品牌", self.item.get("brand", ""))
-        self._add_readonly_spin(supplier_form, "purchase_price", "采购价格", self.item.get("purchase_price", 0))
-        self._add_readonly_spin(supplier_form, "factory_deposit", "工厂订金", self.item.get("factory_deposit", 0))
-        self._add_readonly_spin(supplier_form, "factory_balance", "工厂尾款", self.item.get("factory_balance", 0))
-        self._add_readonly_line(supplier_form, "invoice_status", "开票情况", self.item.get("invoice_status", ""))
-        layout.addLayout(supplier_form)
+        self.product_feature_edit = QLineEdit(self.order_data.get('product_feature', ''))
+        layout.addRow("产品特性:", self.product_feature_edit)
+```
+
+新增图片处理方法：
+
+```python
+    def _upload_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择图片", "", "Images (*.png *.jpg *.jpeg)")
+        if not path:
+            return
+        try:
+            url = self.api_client.upload_image(path, product_id=self.order_data.get('product_id'))
+            self.image_path_label.setText(url)
+        except Exception as e:
+            QMessageBox.warning(self, "上传失败", str(e))
+
+    def _clear_image(self):
+        self.image_path_label.setText("")
+```
+
+- [ ] **步骤 3：添加交货日期字段**
+
+在 `_create_product_area` 的末尾（币种之前）添加：
+
+```python
+        from PySide6.QtCore import QDate
+        self.delivery_date_edit = QDateEdit()
+        self.delivery_date_edit.setCalendarPopup(True)
+        self.delivery_date_edit.setDisplayFormat("yyyy-MM-dd")
+        delivery_date = self.order_data.get('delivery_date')
+        if delivery_date:
+            from datetime import datetime
+            if isinstance(delivery_date, str):
+                delivery_date = datetime.strptime(delivery_date[:10], "%Y-%m-%d")
+            self.delivery_date_edit.setDate(QDate(delivery_date.year, delivery_date.month, delivery_date.day))
+        else:
+            self.delivery_date_edit.setDate(QDate.currentDate())
+        layout.addRow("交货日期:", self.delivery_date_edit)
+```
+
+- [ ] **步骤 4：在付款信息 Area 添加运费、杂费**
+
+在 `_create_payment_area` 中，在"工厂尾款"之后添加：
+
+```python
+        self.shipping_fee_edit = QDoubleSpinBox()
+        self.shipping_fee_edit.setRange(0, 99999999)
+        self.shipping_fee_edit.setDecimals(2)
+        self.shipping_fee_edit.setValue(float(self.order_data.get('shipping_fee') or 0))
+        layout.addRow("运费:", self.shipping_fee_edit)
+
+        self.misc_fee_edit = QDoubleSpinBox()
+        self.misc_fee_edit.setRange(0, 99999999)
+        self.misc_fee_edit.setDecimals(2)
+        self.misc_fee_edit.setValue(float(self.order_data.get('misc_fee') or 0))
+        layout.addRow("杂费:", self.misc_fee_edit)
+```
+
+- [ ] **步骤 5：新增采购/供应商 Area**
+
+在 `_setup_ui` 中，在 `scroll_layout.addWidget(self._create_payment_area())` 之后添加：
+
+```python
+        scroll_layout.addWidget(self._create_supplier_area())
+```
+
+新增方法：
+
+```python
+    def _create_supplier_area(self):
+        group = QGroupBox("🏭 采购/供应商信息")
+        layout = QFormLayout()
+        layout.setSpacing(12)
+
+        self.supplier_name_display = QLineEdit(self.order_data.get('supplier_name', ''))
+        self.supplier_name_display.setReadOnly(True)
+        self.supplier_name_display.setStyleSheet("background-color: #f3f4f6;")
+        layout.addRow("工厂简称:", self.supplier_name_display)
+
+        self.shop_url_display = QLineEdit(self.order_data.get('shop_url', ''))
+        self.shop_url_display.setReadOnly(True)
+        self.shop_url_display.setStyleSheet("background-color: #f3f4f6;")
+        layout.addRow("店铺链接:", self.shop_url_display)
+
+        self.factory_code_display = QLineEdit(self.order_data.get('factory_code', ''))
+        self.factory_code_display.setReadOnly(True)
+        self.factory_code_display.setStyleSheet("background-color: #f3f4f6;")
+        layout.addRow("工厂编号:", self.factory_code_display)
+
+        self.brand_display = QLineEdit(self.order_data.get('brand', ''))
+        self.brand_display.setReadOnly(True)
+        self.brand_display.setStyleSheet("background-color: #f3f4f6;")
+        layout.addRow("品牌:", self.brand_display)
+
+        self.purchase_price_display = QDoubleSpinBox()
+        self.purchase_price_display.setRange(0, 99999999)
+        self.purchase_price_display.setDecimals(4)
+        self.purchase_price_display.setValue(float(self.order_data.get('purchase_price') or 0))
+        self.purchase_price_display.setReadOnly(True)
+        self.purchase_price_display.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.purchase_price_display.setStyleSheet("background-color: #f3f4f6;")
+        layout.addRow("采购价格:", self.purchase_price_display)
+
+        self.invoice_status_display = QLineEdit(self.order_data.get('invoice_status', ''))
+        self.invoice_status_display.setReadOnly(True)
+        self.invoice_status_display.setStyleSheet("background-color: #f3f4f6;")
+        layout.addRow("开票情况:", self.invoice_status_display)
 
         btn_layout = QHBoxLayout()
         purchase_btn = QPushButton("采购 Dialog")
@@ -645,167 +714,15 @@ class ProductItemEditDialog(QDialog):
         self.change_supplier_btn.setToolTip("尚未生成采购单" if not self.is_purchased else "更换供应商将重新生成采购单")
         self.change_supplier_btn.clicked.connect(self._on_change_supplier)
         btn_layout.addWidget(self.change_supplier_btn)
-        layout.addLayout(btn_layout)
+        layout.addRow(btn_layout)
 
-        # 客户回复 Area（预留接口）
-        layout.addWidget(QLabel("<b>客户回复</b>"))
-        self.reply_input = QTextEdit()
-        self.reply_input.setPlaceholderText("输入新回复（当前仅本地记录）...")
-        self.reply_input.setMaximumHeight(80)
-        layout.addWidget(self.reply_input)
-        add_reply_btn = QPushButton("添加回复")
-        add_reply_btn.clicked.connect(self._add_reply)
-        layout.addWidget(add_reply_btn)
-
-        # 保存/取消
-        btn_layout2 = QHBoxLayout()
-        btn_layout2.addStretch()
-        cancel_btn = QPushButton("取消")
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout2.addWidget(cancel_btn)
-        save_btn = QPushButton("保存")
-        save_btn.setStyleSheet("background-color: #10b981; color: white; padding: 8px 16px; border-radius: 4px;")
-        save_btn.clicked.connect(self._on_save)
-        btn_layout2.addWidget(save_btn)
-        layout.addLayout(btn_layout2)
-
-        scroll.setWidget(container)
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(scroll)
-
-        self._apply_locks()
-
-    def _add_line_edit(self, form, key, label, value):
-        edit = QLineEdit(str(value if value is not None else ""))
-        edit.setObjectName(key)
-        form.addRow(label + ":", edit)
-        self._editors[key] = edit
-
-    def _add_spin(self, form, key, label, value):
-        spin = QDoubleSpinBox()
-        spin.setRange(0, 99999999)
-        spin.setDecimals(4)
-        spin.setValue(float(value or 0))
-        spin.setObjectName(key)
-        form.addRow(label + ":", spin)
-        self._editors[key] = spin
-
-    def _add_date(self, form, key, label, value):
-        date_edit = QDateEdit()
-        date_edit.setCalendarPopup(True)
-        date_edit.setDisplayFormat("yyyy-MM-dd")
-        if value:
-            from datetime import datetime
-            if isinstance(value, str):
-                value = datetime.strptime(value[:10], "%Y-%m-%d")
-            date_edit.setDate(QDate(value.year, value.month, value.day))
-        else:
-            date_edit.setDate(QDate.currentDate())
-        date_edit.setObjectName(key)
-        form.addRow(label + ":", date_edit)
-        self._editors[key] = date_edit
-
-    def _add_combo(self, form, key, label, options, value):
-        combo = QComboBox()
-        combo.addItems(options)
-        idx = combo.findText(str(value or ""))
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-        combo.setObjectName(key)
-        form.addRow(label + ":", combo)
-        self._editors[key] = combo
-
-    def _add_image_field(self, layout):
-        img_layout = QHBoxLayout()
-        img_layout.addWidget(QLabel("图片:"))
-        self.image_label = QLabel("无图片")
-        self.image_path = self.item.get("image_url") or self.item.get("default_image_url", "")
-        if self.image_path:
-            self.image_label.setText(self.image_path)
-        img_layout.addWidget(self.image_label)
-        upload_btn = QPushButton("上传图片")
-        upload_btn.clicked.connect(self._upload_image)
-        img_layout.addWidget(upload_btn)
-        clear_btn = QPushButton("清除图片")
-        clear_btn.clicked.connect(self._clear_image)
-        img_layout.addWidget(clear_btn)
-        layout.addLayout(img_layout)
-        self._editors["image_url"] = self  # 占位，图片单独处理
-
-    def _add_readonly_line(self, form, key, label, value):
-        edit = QLineEdit(str(value if value is not None else ""))
-        edit.setReadOnly(True)
-        edit.setStyleSheet("background-color: #f3f4f6;")
-        edit.setObjectName(key)
-        form.addRow(label + ":", edit)
-        self._editors[key] = edit
-
-    def _add_readonly_spin(self, form, key, label, value):
-        spin = QDoubleSpinBox()
-        spin.setRange(0, 99999999)
-        spin.setDecimals(4)
-        spin.setValue(float(value or 0))
-        spin.setReadOnly(True)
-        spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        spin.setStyleSheet("background-color: #f3f4f6;")
-        spin.setObjectName(key)
-        form.addRow(label + ":", spin)
-        self._editors[key] = spin
-
-    def _apply_locks(self):
-        # 已转正式 PI：产品基本信息锁定
-        if self.has_formal:
-            for key in ["customer_code", "oe_number", "remark", "product_name", "customer_model", "product_feature", "quantity"]:
-                editor = self._editors.get(key)
-                if editor:
-                    editor.setEnabled(False)
-        # 已采购：包装规格 + 数量 + 日期锁定
-        if self.is_purchased:
-            for key in ["quantity", "delivery_date", "packaging", "purchase_option_name", "product_detail", "carton_size", "pack_spec", "carton_gross_weight"]:
-                editor = self._editors.get(key)
-                if editor:
-                    editor.setEnabled(False)
-
-    def _apply_focus(self):
-        if self.focus_column is None:
-            return
-        key = self.COLUMN_TO_FIELD.get(self.focus_column)
-        if not key:
-            return
-        editor = self._editors.get(key)
-        if not editor:
-            return
-        editor.setStyleSheet("border: 2px solid #f59e0b; background-color: #fffbeb;")
-        editor.setFocus()
-        # 下拉框展开、日期选择器弹出
-        if isinstance(editor, QComboBox):
-            editor.showPopup()
-        elif isinstance(editor, QDateEdit):
-            editor.calendarWidget().showSelectedDate()
-
-    def _upload_image(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择图片", "", "Images (*.png *.jpg *.jpeg)")
-        if not path:
-            return
-        if self.api_client:
-            try:
-                url = self.api_client.upload_image(path, product_id=self.item.get("product_id"))
-                self.image_path = url
-                self.image_label.setText(url)
-            except Exception as e:
-                QMessageBox.warning(self, "上传失败", str(e))
-        else:
-            self.image_path = path
-            self.image_label.setText(path)
-
-    def _clear_image(self):
-        self.image_path = ""
-        self.image_label.setText("无图片")
+        group.setLayout(layout)
+        return group
 
     def _open_purchase_dialog(self):
-        # 调用外部传入的回调或信号
-        if hasattr(self.parent(), "open_purchase_dialog_for_item"):
-            self.parent().open_purchase_dialog_for_item(self.item)
+        # 通过父窗口打开采购 Dialog
+        if self.parent() and hasattr(self.parent(), '_on_purchase_single'):
+            self.parent()._on_purchase_single(self.order_data)
 
     def _on_change_supplier(self):
         reply = QMessageBox.question(
@@ -817,62 +734,96 @@ class ProductItemEditDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
         from widgets.supplier_change_dialog import SupplierChangeDialog
-        dlg = SupplierChangeDialog(self.item, parent=self)
+        dlg = SupplierChangeDialog(self.order_data, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             data = dlg.get_data()
-            if self.api_client:
-                try:
-                    self.api_client.change_supplier(self.item["id"], data)
-                    QMessageBox.information(self, "成功", "供应商已更换，采购单已重新生成")
-                    self.accept()
-                except Exception as e:
-                    QMessageBox.warning(self, "失败", str(e))
-
-    def _add_reply(self):
-        text = self.reply_input.toPlainText().strip()
-        if not text:
-            return
-        # 预留接口：本地记录
-        self.item.setdefault("customer_replies", []).append(text)
-        self.reply_input.clear()
-        QMessageBox.information(self, "提示", "回复已记录（客户回复接口尚未接入后端）")
-
-    def _on_save(self):
-        result = {}
-        for key, editor in self._editors.items():
-            if key == "image_url":
-                continue
-            if isinstance(editor, QLineEdit):
-                result[key] = editor.text()
-            elif isinstance(editor, QDoubleSpinBox):
-                result[key] = editor.value()
-            elif isinstance(editor, QComboBox):
-                result[key] = editor.currentText()
-            elif isinstance(editor, QDateEdit):
-                result[key] = editor.date().toString("yyyy-MM-dd")
-        result["image_url"] = self.image_path
-        self.item.update(result)
-        self.result_data = result
-        self.accept()
-
-    def get_data(self):
-        return getattr(self, "result_data", {})
+            try:
+                self.api_client.change_supplier(self.order_data['id'], data)
+                QMessageBox.information(self, "成功", "供应商已更换，采购单已重新生成")
+                self.accept()
+            except Exception as e:
+                QMessageBox.warning(self, "失败", str(e))
 ```
 
-- [ ] **步骤 2：语法检查**
+- [ ] **步骤 6：添加锁定与高亮逻辑**
+
+新增方法：
+
+```python
+    def _apply_locks(self):
+        """根据正式PI/采购状态锁定字段"""
+        if self.has_formal:
+            # 产品基本信息锁定
+            for editor in (self.customer_product_code_edit, self.oe_number_edit,
+                           self.product_name_edit, self.customer_model_edit,
+                           self.product_feature_edit, self.quantity_edit):
+                editor.setEnabled(False)
+        if self.is_purchased:
+            # 产品基本信息 + 交货日期 + 包装规格锁定
+            for editor in (self.quantity_edit, self.delivery_date_edit,
+                           self.radio_single, self.radio_multi, self.radio_box,
+                           self.units_per_box_spin, self.boxes_count_spin,
+                           self.purchase_channel_edit, self.carton_length_edit,
+                           self.carton_width_edit, self.carton_height_edit,
+                           self.gross_weight_edit):
+                editor.setEnabled(False)
+
+    def _apply_focus(self):
+        """根据触发列高亮对应字段"""
+        if self.focus_column is None:
+            return
+        widget_name = self.COLUMN_TO_FIELD.get(self.focus_column)
+        if not widget_name:
+            return
+        editor = getattr(self, widget_name, None)
+        if not editor:
+            return
+        editor.setStyleSheet("border: 2px solid #f59e0b; background-color: #fffbeb;")
+        editor.setFocus()
+```
+
+- [ ] **步骤 7：扩展 `_save` 保存新增字段**
+
+在 `_save` 方法的 `data` 字典中，在原有字段基础上增加：
+
+```python
+            'customer_code': self.customer_product_code_edit.text().strip(),
+            'customer_model': self.customer_model_edit.text().strip(),
+            'product_feature': self.product_feature_edit.text().strip(),
+            'image_url': self.image_path_label.text().strip(),
+            'delivery_date': self.delivery_date_edit.date().toString("yyyy-MM-dd"),
+            'shipping_fee': self.shipping_fee_edit.value(),
+            'misc_fee': self.misc_fee_edit.value(),
+```
+
+并确保这些字段在 `core_data` 中正确映射：
+
+```python
+                'customer_code': data.get('customer_code') if data.get('customer_code') else None,
+                'customer_model': data.get('customer_model') if data.get('customer_model') else None,
+                'product_feature': data.get('product_feature') if data.get('product_feature') else None,
+                'image_url': data.get('image_url') if data.get('image_url') else None,
+                'delivery_date': data.get('delivery_date') if data.get('delivery_date') else None,
+                'shipping_fee': data.get('shipping_fee') if data.get('shipping_fee') else None,
+                'misc_fee': data.get('misc_fee') if data.get('misc_fee') else None,
+```
+
+> 注意：`OrderSummaryEditDialog` 原 `_save` 使用 `supplier_deposit`/`supplier_balance` 作为 UI 字段名，后端映射为 `factory_deposit`/`factory_balance`。保持原逻辑不变。
+
+- [ ] **步骤 8：语法检查**
 
 ```bash
 cd e:\AI\TraeProject\PI-Manager-System\client
-python -m py_compile widgets/product_item_edit_dialog.py
+python -m py_compile widgets/order_summary_edit_dialog.py
 ```
 
 预期：无错误。
 
-- [ ] **步骤 3：Commit**
+- [ ] **步骤 9：Commit**
 
 ```bash
-git add client/widgets/product_item_edit_dialog.py
-git commit -m "feat(client): rewrite ProductItemEditDialog with full fields and locking"
+git add client/widgets/order_summary_edit_dialog.py
+git commit -m "feat(client): extend OrderSummaryEditDialog with new fields, locking and focus"
 ```
 
 ---
@@ -1051,7 +1002,7 @@ for col in range(ORDER_DETAIL_COLUMN_COUNT):
 ```python
 @Slot(int, int)
 def _on_cell_double_clicked(self, row, column):
-    """双击事件：可编辑列进入内联编辑；2-9/23/包装规格列打开编辑产品 Dialog"""
+    """双击事件：可编辑列进入内联编辑；2-9/23/包装规格列打开订单编辑 Dialog"""
     if column in (10, 13, 14, 18, 19):
         # 让表格默认行为处理内联编辑
         return
@@ -1116,28 +1067,23 @@ def _get_item_purchase_order_id(self, item: dict) -> int | None:
 
 ```python
 def open_edit_dialog(self, row: int, focus_column: int = None):
-    """外部调用：打开编辑产品 Dialog"""
+    """外部调用：打开订单编辑 Dialog"""
     item = self.get_item_at_row(row)
     if not item:
         return
-    from widgets.product_item_edit_dialog import ProductItemEditDialog
-    dlg = ProductItemEditDialog(
-        item,
+    from widgets.order_summary_edit_dialog import OrderSummaryEditDialog
+    dlg = OrderSummaryEditDialog(
+        order_item=item,
         api_client=self.api_client,
+        order=self._current_order,
         focus_column=focus_column,
         has_formal=self._has_formal_record,
         is_purchased=self._is_item_purchased(item),
         parent=self,
     )
     if dlg.exec() == QDialog.DialogCode.Accepted:
-        data = dlg.get_data()
-        if data:
-            try:
-                self.api_client.update_pi_item(item["id"], data)
-                # 刷新当前行
-                self.show_order_detail(self._current_order, self._current_items)
-            except Exception as e:
-                QMessageBox.warning(self, "保存失败", str(e))
+        # Dialog 已内部调用 api_client.update_pi_item，刷新表格即可
+        self.show_order_detail(self._current_order, self._current_items)
 ```
 
 - [ ] **步骤 8：Commit**
@@ -1246,7 +1192,7 @@ python -c "from main import app; print('backend ok')"
 ```bash
 cd e:\AI\TraeProject\PI-Manager-System\client
 python -m py_compile main.py
-python -m py_compile widgets/product_item_edit_dialog.py
+python -m py_compile widgets/order_summary_edit_dialog.py
 python -m py_compile widgets/supplier_change_dialog.py
 python -m py_compile widgets/purchase_snapshot_dialog.py
 python -m py_compile widgets/order_summary/order_detail_panel.py
