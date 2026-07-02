@@ -587,38 +587,42 @@ class OrderImportDialog(QDialog):
 
     def _refresh_duplicate_highlight(self):
         """刷新预览表中重复行的高亮与状态标签。"""
-        if not self.preview_table or self.preview_table.rowCount() == 0:
-            return
+        try:
+            if not self.preview_table or self.preview_table.rowCount() == 0:
+                return
 
-        rows = self.preview_data.get('rows', []) if self.preview_data else []
-        headers = self.preview_data.get('headers', [])
-        model_col_idx = self._find_model_column(headers) if headers else None
+            rows = self.preview_data.get('rows', []) if self.preview_data else []
+            headers = self.preview_data.get('headers', [])
+            model_col_idx = self._find_model_column(headers) if headers else None
 
-        existing_keys = self._build_existing_duplicate_keys()
-        duplicates = find_preview_duplicates(rows, headers, model_col_idx, existing_keys)
-        self._duplicate_groups = duplicates
+            existing_keys = self._build_existing_duplicate_keys()
+            duplicates = find_preview_duplicates(rows, headers, model_col_idx, existing_keys)
+            self._duplicate_groups = duplicates
 
-        duplicate_indices = set()
-        for group in duplicates:
-            duplicate_indices.update(group['indices'])
+            duplicate_indices = set()
+            for group in duplicates:
+                duplicate_indices.update(group['indices'])
 
-        yellow = QColor("#fef3c7")
-        white = QColor("#ffffff")
-        preserve_colors = {"#fee2e2", "#dbeafe"}
-        for r in range(self.preview_table.rowCount()):
-            is_duplicate = r in duplicate_indices
-            for c in range(self.preview_table.columnCount()):
-                item = self.preview_table.item(r, c)
-                if not item:
-                    continue
-                if is_duplicate:
-                    item.setBackground(yellow)
-                else:
-                    current = item.background().color().name().lower()
-                    if current not in preserve_colors:
-                        item.setBackground(white)
+            yellow = QColor("#fef3c7")
+            white = QColor("#ffffff")
+            preserve_colors = {"#fee2e2", "#dbeafe"}
+            for r in range(self.preview_table.rowCount()):
+                is_duplicate = r in duplicate_indices
+                for c in range(self.preview_table.columnCount()):
+                    item = self.preview_table.item(r, c)
+                    if not item:
+                        continue
+                    if is_duplicate:
+                        item.setBackground(yellow)
+                    else:
+                        current = item.background().color().name().lower()
+                        if current not in preserve_colors:
+                            item.setBackground(white)
 
-        self._refresh_preview_stats()
+            self._refresh_preview_stats()
+        except Exception as e:
+            print(f"[重复检测] 刷新高亮失败: {e}")
+            self._duplicate_groups = []
 
     def _build_existing_duplicate_keys(self) -> set:
         """构建补充模式下已存在产品的判定键集合。"""
@@ -1175,44 +1179,48 @@ class OrderImportDialog(QDialog):
             True: 继续导入（可能已过滤重复行）
             False: 取消导入
         """
-        rows = self.preview_data.get('rows', []) if self.preview_data else []
-        if not rows:
+        try:
+            rows = self.preview_data.get('rows', []) if self.preview_data else []
+            if not rows:
+                return True
+
+            headers = self.preview_data.get('headers', [])
+            model_col_idx = self._find_model_column(headers) if headers else None
+            existing_keys = self._build_existing_duplicate_keys()
+            duplicates = find_preview_duplicates(rows, headers, model_col_idx, existing_keys)
+
+            if not duplicates:
+                return True
+
+            displays = [g['display'] for g in duplicates[:10]]
+            msg = "检测到以下重复产品：\n" + "\n".join(f"- {d}" for d in displays)
+
+            box = QMessageBox(self)
+            box.setWindowTitle("检测到重复产品")
+            box.setText(msg + "\n\n请选择处理方式：")
+            continue_btn = box.addButton("继续导入", QMessageBox.AcceptRole)
+            skip_btn = box.addButton("跳过重复行", QMessageBox.DestructiveRole)
+            cancel_btn = box.addButton("取消", QMessageBox.RejectRole)
+            box.exec()
+
+            clicked = box.clickedButton()
+            if clicked == cancel_btn:
+                return False
+            if clicked == skip_btn:
+                keep = filter_duplicate_indices(len(rows), duplicates)
+                skip_indices = set(range(len(rows))) - set(keep)
+                for i in skip_indices:
+                    raw_idx = self._map_display_row_to_raw_index(i)
+                    if raw_idx is not None:
+                        self._deleted_preview_indices.add(raw_idx)
+                self.preview_data['rows'] = [rows[i] for i in keep]
+                self.preview_data['total'] = len(self.preview_data['rows'])
+                self._rebuild_preview_table_from_rows()
+                self._refresh_duplicate_highlight()
             return True
-
-        headers = self.preview_data.get('headers', [])
-        model_col_idx = self._find_model_column(headers) if headers else None
-        existing_keys = self._build_existing_duplicate_keys()
-        duplicates = find_preview_duplicates(rows, headers, model_col_idx, existing_keys)
-
-        if not duplicates:
+        except Exception as e:
+            print(f"[重复检测] 确认弹窗失败: {e}")
             return True
-
-        displays = [g['display'] for g in duplicates[:10]]
-        msg = "检测到以下重复产品：\n" + "\n".join(f"- {d}" for d in displays)
-
-        box = QMessageBox(self)
-        box.setWindowTitle("检测到重复产品")
-        box.setText(msg + "\n\n请选择处理方式：")
-        continue_btn = box.addButton("继续导入", QMessageBox.AcceptRole)
-        skip_btn = box.addButton("跳过重复行", QMessageBox.DestructiveRole)
-        cancel_btn = box.addButton("取消", QMessageBox.RejectRole)
-        box.exec()
-
-        clicked = box.clickedButton()
-        if clicked == cancel_btn:
-            return False
-        if clicked == skip_btn:
-            keep = filter_duplicate_indices(len(rows), duplicates)
-            skip_indices = set(range(len(rows))) - set(keep)
-            for i in skip_indices:
-                raw_idx = self._map_display_row_to_raw_index(i)
-                if raw_idx is not None:
-                    self._deleted_preview_indices.add(raw_idx)
-            self.preview_data['rows'] = [rows[i] for i in keep]
-            self.preview_data['total'] = len(self.preview_data['rows'])
-            self._rebuild_preview_table_from_rows()
-            self._refresh_duplicate_highlight()
-        return True
 
     def _rebuild_preview_table_from_rows(self):
         """根据 self.preview_data['rows'] 重建预览表格（仅用于跳过重复行后）。"""
