@@ -38,7 +38,7 @@ panel.cellDoubleClicked.connect(main_window._on_order_detail_double_click)
 from PySide6.QtWidgets import (
     QWidget, QTableWidget, QTableWidgetItem, QLabel, QPushButton,
     QHeaderView, QAbstractItemView, QGroupBox, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QCheckBox, QMenu
+    QMessageBox, QCheckBox, QMenu, QDialog
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QColor, QBrush, QFont, QPixmap, QImage, QAction
@@ -91,7 +91,12 @@ class OrderDetailPanel(QWidget):
     formalRecordChecked = Signal(bool)
     # 2026-06-23：正式PI保存完成信号（由 detail_panel 内部按钮触发，通知外部）
     formalRecordSaved = Signal()
-    
+    # 2026-07-02：编辑产品 / 更换供应商 / 采购快照 / 访问店铺网站
+    editProductRequested = Signal(int, int)          # 行索引, 触发列号(-1 表示右键菜单)
+    changeSupplierRequested = Signal(int)            # 行索引
+    purchaseSnapshotRequested = Signal(int)          # 行索引
+    openShopUrlRequested = Signal(int)               # 行索引
+
     def __init__(self, api_client, parent=None):
         super().__init__(parent)
         self.api_client = api_client
@@ -152,7 +157,10 @@ class OrderDetailPanel(QWidget):
         # 连接双击信号
         self._table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self._table.cellClicked.connect(self._on_detail_table_clicked)
-    
+
+        # 2026-07-02：连接内联编辑保存信号
+        self._init_table_connections()
+
     def _create_header(self) -> QWidget:
         """创建详情头部（返回按钮 + 标题 + 状态灯 + 操作按钮）"""
         header = QWidget()
@@ -315,7 +323,11 @@ class OrderDetailPanel(QWidget):
         # 表格属性
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setAlternatingRowColors(True)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # 2026-07-02：简单字段（文本/数字）允许内联编辑；复杂字段通过右键/双击打开 Dialog
+        table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
         table.verticalHeader().setDefaultSectionSize(ORDER_DETAIL_ROW_HEIGHT)
         table.setStyleSheet("""
             QTableWidget {
@@ -324,13 +336,86 @@ class OrderDetailPanel(QWidget):
                 border-radius: 4px;
             }
         """)
-        
+
         return table
-    
+
+    def _init_table_connections(self):
+        """连接表格编辑相关信号"""
+        self._table.cellChanged.connect(self._on_cell_changed)
+
+    @Slot(int, int)
+    def _on_cell_changed(self, row, column):
+        """单元格内容变化后失去焦点自动保存"""
+        # 只处理允许内联编辑的列
+        if column not in (10, 13, 14, 18, 19):
+            return
+        if row < 0 or row >= len(self._current_items):
+            return
+        item = self._current_items[row]
+        table_item = self._table.item(row, column)
+        if not table_item:
+            return
+
+        field_map = {
+            10: ("unit_price", float),
+            13: ("customer_prepayment", float),
+            14: ("remaining_payment", float),
+            18: ("shipping_fee", float),
+            19: ("misc_fee", float),
+        }
+        field, converter = field_map[column]
+        try:
+            new_value = converter(table_item.text())
+        except (ValueError, TypeError):
+            return
+
+        # 与旧值相同则不保存
+        old_value = item.get(field)
+        try:
+            if old_value is not None and float(old_value) == new_value:
+                return
+        except (ValueError, TypeError):
+            pass
+
+        item[field] = new_value
+        if self.api_client and item.get("id"):
+            try:
+                self.api_client.update_pi_item(item["id"], {field: new_value})
+            except Exception as e:
+                QMessageBox.warning(self, "保存失败", f"{field} 保存失败：{e}")
+                # 回滚显示
+                self.show_order_detail(self._current_order, self._current_items)
+
     @Slot(int, int)
     def _on_cell_double_clicked(self, row, column):
-        """单元格双击事件（转发信号）"""
-        self.cellDoubleClicked.emit(row, column)
+        """双击事件：可编辑列进入内联编辑；2-9/23/包装规格列打开编辑订单产品 Dialog"""
+        if column in (10, 13, 14, 18, 19):
+            # 让表格默认行为处理内联编辑
+            return
+        if column in (
+            2, 3, 4, 5, 6, 7, 8, 9,      # 基础信息
+            23,                           # 交货日期
+            29, 30, 31, 33, 34, 37,       # 包装规格
+        ):
+            self.editProductRequested.emit(row, column)
+
+    def open_edit_dialog(self, row: int, focus_column: int = -1):
+        """外部调用：打开编辑订单产品 Dialog"""
+        item = self.get_item_at_row(row)
+        if not item:
+            return
+        from widgets.product_item_edit_dialog import ProductItemEditDialog
+        dlg = ProductItemEditDialog(
+            item=item,
+            api_client=self.api_client,
+            focus_column=focus_column,
+            has_formal=self._has_formal_record,
+            is_purchased=self._is_item_purchased(item),
+            parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # Dialog 已内部调用 api_client.update_pi_item，刷新表格即可
+            self.show_order_detail(self._current_order, self._current_items)
     
     def get_table(self) -> QTableWidget:
         """获取表格组件"""
@@ -1545,6 +1630,25 @@ class OrderDetailPanel(QWidget):
         delete_action = menu.addAction("删除商品")
         delete_action.setEnabled(True)
         delete_action.triggered.connect(lambda: self.deleteItemRequested.emit(row))
+
+        # 2026-07-02 新增：编辑产品 / 更换供应商 / 采购快照 / 访问店铺网站
+        menu.addSeparator()
+        edit_action = menu.addAction("编辑产品")
+        edit_action.triggered.connect(lambda: self.editProductRequested.emit(row, -1))
+
+        change_supplier_action = menu.addAction("更换供应商")
+        has_po = self._is_item_purchased(item)
+        change_supplier_action.setEnabled(has_po)
+        change_supplier_action.setToolTip("尚未生成采购单" if not has_po else "更换供应商将重新生成采购单")
+        change_supplier_action.triggered.connect(lambda: self.changeSupplierRequested.emit(row))
+
+        snapshot_action = menu.addAction("采购快照")
+        snapshot_action.triggered.connect(lambda: self.purchaseSnapshotRequested.emit(row))
+
+        open_url_action = menu.addAction("访问店铺网站")
+        shop_url = item.get("shop_url", "")
+        open_url_action.setEnabled(bool(shop_url))
+        open_url_action.triggered.connect(lambda: self.openShopUrlRequested.emit(row))
 
         # 2026-06-23 新增：订单级缺货标记
         menu.addSeparator()
