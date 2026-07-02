@@ -73,10 +73,7 @@ class SingleOrderDialog(QDialog):
         self.load_customers_async()
 
     def get_product_data(self) -> dict:
-        """
-        补充模式下返回当前录入的产品数据；
-        其他模式返回 None 或最近一次捕获的数据。
-        """
+        """返回当前录入的产品数据（导入/补充模式都通过预览表统一提交）。"""
         return self._captured_product_data
 
     def _try_preselect_customer(self):
@@ -348,17 +345,6 @@ class SingleOrderDialog(QDialog):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        if self._mode == 'supplement':
-            self._captured_product_data = product_data
-            self.accept()
-            return
-
-        try:
-            response = self.api_client.post("/orders/single", data=product_data)
-            if response and response.get('success'):
-                QMessageBox.information(self, "成功", f"订单创建成功！\nPI号: {response.get('pi_no', '')}")
-                self.accept()
-            else:
-                QMessageBox.warning(self, "错误", response.get('error', '创建失败') if response else '创建失败')
-        except Exception as e:
-            QMessageBox.warning(self, "错误", f"创建订单失败: {str(e)}")
+        # 单条录入统一返回数据，由 OrderImportDialog 的预览表统一提交
+        self._captured_product_data = product_data
+        self.accept()

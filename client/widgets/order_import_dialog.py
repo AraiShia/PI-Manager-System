@@ -618,6 +618,9 @@ class OrderImportDialog(QDialog):
         if not self.preview_table:
             return
 
+        if not product_data:
+            return
+
         if self.preview_data is None:
             self.preview_data = {'headers': [], 'rows': [], 'total': 0}
 
