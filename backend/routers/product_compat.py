@@ -31,11 +31,10 @@ router = APIRouter(prefix="/api/products", tags=["products-compat"])
 
 
 class CompatProductItem(BaseModel):
-    """前端兼容用的产品对象（2026-06-23 扩展：补齐转正回调所需字段）
+    """前端兼容用的产品对象
 
     字段必须与 /api/customer-products/{id} 的 CustomerProductResponse 对齐，
-    否则前端的 product_confirmed 信号会丢失 customer_remark / price_rmb 等，
-    导致转正后 PI 订单项同步失败（log.txt 中备注/价格不更新）。
+    否则前端的 product_confirmed 信号会丢失 customer_remark / price_rmb 等。
     """
     id: int
     customer_id: Optional[int] = None
@@ -67,8 +66,7 @@ def _to_compat_item(cp) -> CompatProductItem:
     """转换：基于 PrdCustomerProduct 字段填充 CompatProductItem
 
     2026-06-23 扩展：补齐 customer_remark / customer_model / color / price_*
-    等字段，使前端转正回调的 product_confirmed 信号能拿到完整数据，
-    避免备注/价格丢失（log.txt 问题）。
+    等字段，使前端的 product_confirmed 信号能拿到完整数据。
     """
     sub_images: List[str] = []
     if getattr(cp, "sub_images", None):
@@ -86,7 +84,6 @@ def _to_compat_item(cp) -> CompatProductItem:
         product_name=cp.product_name or cp.detail_desc,
         customer_model=cp.customer_model,
         color=cp.color,
-        # 2026-06-23 修复：转正回调需要这些字段
         customer_remark=cp.customer_remark,
         detail_desc=cp.detail_desc or cp.product_name,
         brand=cp.brand,

@@ -7,7 +7,6 @@ Phase 5 后已删除 prd_product 表，所有产品统一来自 prd_customer_pro
 使用：
     from services.product_lookup import unified_product_lookup
     product = unified_product_lookup(db, item.product_id, customer_id=customer.id)
-    if product.is_temporary: ...
 """
 import logging
 import time
@@ -25,11 +24,10 @@ class UnifiedProduct:
     def __init__(self, data: PrdCustomerProduct):
         self._data = data
         logger.debug(
-            "[UnifiedProduct] 包装产品对象 id=%s, customer_id=%s, model=%s, is_temporary=%s",
+            "[UnifiedProduct] 包装产品对象 id=%s, customer_id=%s, model=%s",
             getattr(data, 'id', None),
             getattr(data, 'customer_id', None),
             getattr(data, 'customer_model', None),
-            getattr(data, 'is_temporary', None),
         )
 
     @property
@@ -78,7 +76,8 @@ class UnifiedProduct:
 
     @property
     def is_temporary(self) -> bool:
-        return bool(self._data.is_temporary)
+        # 2026-07-02: 临时产品功能已去除，统一返回 False
+        return False
 
     @property
     def customer_id(self) -> Optional[int]:
@@ -142,8 +141,8 @@ def unified_product_lookup(
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     logger.info(
-        "[unified_product_lookup] 命中 product_id=%s, customer_id=%s, model=%s, is_temp=%s, 耗时=%.2fms",
-        cp.id, cp.customer_id, cp.customer_model, cp.is_temporary, elapsed_ms,
+        "[unified_product_lookup] 命中 product_id=%s, customer_id=%s, model=%s, 耗时=%.2fms",
+        cp.id, cp.customer_id, cp.customer_model, elapsed_ms,
     )
     if elapsed_ms > 200:
         logger.warning(

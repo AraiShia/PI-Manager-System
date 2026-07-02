@@ -176,7 +176,7 @@ async def import_orders(
         all_items = []
         success_rows = 0
         failed_rows = 0
-        temp_model_count = 0  # 统计自动生成的临时编号数量
+        auto_model_count = 0  # 统计自动生成的客户产品编号数量
 
         for row_index, row in enumerate(rows[1:], start=2):
             try:
@@ -221,8 +221,8 @@ async def import_orders(
 
                 all_items.append(order_data)
                 success_rows += 1
-                if order_data.get('_temp_model'):
-                    temp_model_count += 1
+                if order_data.get('_auto_model'):
+                    auto_model_count += 1
                 row_duration = (datetime.now() - row_start_time).total_seconds()
                 logger.info(f"  [✅ 第{row_index}行处理完成] 耗时={row_duration:.3f}s, product_id={order_data.get('product_id')}")
 
@@ -249,7 +249,7 @@ async def import_orders(
                 success=False,
                 success_count=0,
                 failed_count=len(rows) - 1,
-                temp_model_count=0,
+                auto_model_count=0,
                 errors=errors,
                 created_orders=[]
             )
@@ -309,7 +309,7 @@ async def import_orders(
                 success=False,
                 success_count=0,
                 failed_count=max(0, len(rows) - 1),
-                temp_model_count=0,
+                auto_model_count=0,
                 errors=[ImportError(row=1, error=str(e), suggestions=["联系管理员"])],
                 created_orders=[]
             )
@@ -353,7 +353,7 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
     import string
     errors = []
     data = {}
-    generated_temp_model = False
+    generated_auto_model = False
 
     for col_idx, value in enumerate(row):
         # 🔧 2026-06-29 修复：当表头列中存在空白列（无表头）时，
@@ -477,8 +477,8 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
         rand2 = random.choice(string.ascii_uppercase)
         seq = str(row_index).zfill(2) if row_index else '01'
         data['customer_code'] = f"TP{date_part}{rand1}{rand2}{seq}"
-        generated_temp_model = True
-        data['_temp_model'] = True  # 标记，供后续状态灯使用
+        generated_auto_model = True
+        data['_auto_model'] = True  # 标记，供后续统计使用
 
     return data, errors
 

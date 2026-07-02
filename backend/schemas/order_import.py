@@ -262,7 +262,7 @@ class ImportResponse(BaseModel):
     success: bool = Field(default=True, description="是否成功")
     success_count: int = Field(default=0, ge=0, description="成功导入数量")
     failed_count: int = Field(default=0, ge=0, description="导入失败数量")
-    temp_model_count: int = Field(default=0, ge=0, description="自动生成临时编号的数量")
+    auto_model_count: int = Field(default=0, ge=0, description="自动生成客户产品编号的数量")
     errors: List[ImportError] = Field(default=[], description="错误列表")
     created_orders: List[int] = Field(default=[], description="创建的订单ID列表")
 
