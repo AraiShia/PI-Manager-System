@@ -107,9 +107,8 @@ def update_pi_status(db: Session, pi_id: int, status: int) -> PiProformaInvoice:
 def delete_pi_invoice(db: Session, pi_id: int):
     """删除PI订单
 
-    2026-06-15 业务规则调整：
-    - 含临时产品项（item.is_temporary=True）的 PI → 允许删除（草稿可清）
-    - 已全部转正为正式 PI（无临时产品项）→ 拒绝删除（不可逆存档）
+    2026-07-02: 临时产品功能已去除，所有 PI 项均视为正式记录，
+    删除时不再区分草稿/正式，直接执行删除。
 
     2026-06-15 Bug 修复：删除 items/payment_stages 改用 ORM cascade，
     不再手动 db.query(...).delete()，避免与 cascade 冲突触发 SQLAlchemy
@@ -118,13 +117,6 @@ def delete_pi_invoice(db: Session, pi_id: int):
     db_pi = get_pi_invoice(db, pi_id)
     if not db_pi:
         raise ValueError("PI不存在")
-    # 业务规则：仅"还有临时产品项"才允许删除；已为正式 PI 一律拒绝
-    has_temporary = db.query(PiProformaInvoiceItem).filter(
-        PiProformaInvoiceItem.pi_id == pi_id,
-        PiProformaInvoiceItem.is_temporary == True,  # noqa: E712
-    ).first()
-    if not has_temporary:
-        raise ValueError("已保存为正式PI，不可删除")
     # 依赖 Pi.items / Pi.payment_stages 关系上的 cascade="all, delete-orphan"，
     # ORM 会自动删除关联明细和付款阶段，不要手动 db.query(...).delete()
     db.delete(db_pi)
@@ -329,15 +321,8 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         customer_id=customer.id if customer else None,
     )
 
-    # Phase 5: 所有产品统一来自 prd_customer_product，is_temporary 字段在产品上
-    if item.is_temporary:
-        is_temporary = True
-    elif item.product_id is None:
-        is_temporary = True
-    elif product:
-        is_temporary = bool(product.is_temporary)
-    else:
-        is_temporary = False
+    # 2026-07-02: 临时产品功能已去除，统一视为正式记录
+    is_temporary = False
     temp_data = {}
 
     # Phase 5: customer_model 优先取 item 自身字段（导入时直接写入），
@@ -437,9 +422,9 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         "id": item.id,
         "product_id": item.product_id,
         "po_item_id": po_item_id,  # 2026-06-15: 添加采购单项ID用于保存包装规格
-        "is_temporary": is_temporary,
-        "temporary_reason": temp_data.get("reason") if is_temporary else None,
-        "temp_data": temp_data if is_temporary else {},
+        "is_temporary": False,
+        "temporary_reason": None,
+        "temp_data": {},
         
         # === 包装规格数据 (2026-06-15) ===
         # FixPlan Task 4: 优先快照字段，回退 package_data
@@ -479,9 +464,9 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         # === A组: 基础信息 (列0-9) ===
         "order_date": pi_created_at.strftime("%Y-%m-%d")[:10] if pi_created_at else None,
         "order_no": None,
-        "customer_code": item.customer_code or (temp_data.get("customer_code") if is_temporary else None),
-        # 产品名称：优先产品表，其次临时产品，最后描述
-        "product_name": product.product_name if product else (item.detail_desc or temp_data.get("product_name")),
+        "customer_code": item.customer_code,
+        # 产品名称：优先产品表，其次描述
+        "product_name": product.product_name if product else item.detail_desc,
         "product_code": product.system_code if product else None,  # 系统编号, e.g., C02260000
         "oe_number": item.oe_number or (product.oe_number if product else None),
         "remark": item.remark,
@@ -494,21 +479,21 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         # 颜色：从产品表或采购单获取
         "color": getattr(product, 'color', None) if product else (getattr(po_item, 'color', None) if po_item else None),
         "customer_model": customer_model,
-        "product_feature": temp_data.get("feature") if is_temporary else None,
+        "product_feature": None,
 
         # === B组: 价格与财务 (列9-20) ===
         "quantity": float(item.quantity),
         "unit_price": float(item.unit_price),
         "total_price": float(item.total_price),
-        "customer_reply": temp_data.get("customer_reply") if is_temporary else None,
+        "customer_reply": None,
         # FixPlan Task 4: prepayment/remaining_payment 优先快照字段
         "prepayment": _snapshot_or_fallback(
             getattr(item, 'customer_prepayment', None) and float(getattr(item, 'customer_prepayment', None)),
-            temp_data.get("prepayment") if is_temporary else None
+            None
         ),
         "remaining_payment": _snapshot_or_fallback(
             getattr(item, 'remaining_payment', None) and float(getattr(item, 'remaining_payment', None)),
-            temp_data.get("remaining_payment") if is_temporary else None
+            None
         ),
         # Fix 2026-06-23: col 15/16 用真实数据计算（temp_data 永远是空 dict）
         # Excel列15: 预估美金报价 = 采购价 × (1 + 基础毛利率) / 汇率
@@ -520,11 +505,11 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         ),
         "shipping_fee": _snapshot_or_fallback(
             getattr(item, 'shipping_fee', None) and float(getattr(item, 'shipping_fee', None)),
-            temp_data.get("shipping_fee") if is_temporary else None
+            None
         ),
         "misc_fee": _snapshot_or_fallback(
             getattr(item, 'misc_fee', None) and float(getattr(item, 'misc_fee', None)),
-            temp_data.get("misc_fee") if is_temporary else None
+            None
         ),
         # Fix 2026-06-23: col 15/16 用真实数据计算（temp_data 永远是空 dict）
         # Excel列15: 预估美金报价 = 采购价 × (1 + 基础毛利率) / 汇率（RMB采购）或 ×(1+毛利率)（USD采购）
@@ -543,11 +528,11 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
                 float(item.quantity) if item.quantity else None,
                 _snapshot_or_fallback(
                     getattr(item, 'shipping_fee', None) and float(getattr(item, 'shipping_fee', None)),
-                    temp_data.get("shipping_fee") if is_temporary else None
+                    None
                 ),
                 _snapshot_or_fallback(
                     getattr(item, 'misc_fee', None) and float(getattr(item, 'misc_fee', None)),
-                    temp_data.get("misc_fee") if is_temporary else None
+                    None
                 )
             ),
             po_currency or 'RMB',
@@ -574,7 +559,7 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         ),
         "shop_url": _snapshot_or_fallback(
             getattr(item, 'shop_url', None),
-            po_shop_url or (temp_data.get("shop_url") if is_temporary else None)
+            po_shop_url
         ),
         "delivery_date": _snapshot_or_fallback(
             getattr(item, 'delivery_date', None) and (
@@ -582,9 +567,9 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
                 if hasattr(getattr(item, 'delivery_date', None), 'strftime') 
                 else str(getattr(item, 'delivery_date', None))
             ) if getattr(item, 'delivery_date', None) else None,
-            po_delivery_date or (temp_data.get("delivery_date") if is_temporary else None)
+            po_delivery_date
         ),
-        "received_status": po_received_status or (temp_data.get("received_status") if is_temporary else None),
+        "received_status": po_received_status,
         # FixPlan Task 4: 定金/尾款 优先快照字段
         "factory_deposit": _snapshot_or_fallback(
             getattr(item, 'factory_deposit', None) and float(getattr(item, 'factory_deposit', None)),
@@ -600,26 +585,26 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         # 通过 StorageStatus.normalize 兼容 DB 旧值（已采购/× 未入库/有库/partial/已部分入库）。
         "storage_status": StorageStatus.normalize(_snapshot_or_fallback(
             getattr(item, 'storage_status', None),
-            po_warehouse_action or (temp_data.get("storage_status") if is_temporary else None)
+            po_warehouse_action
         )),
         "stocked_qty": _snapshot_or_fallback(
             getattr(item, 'stocked_qty', None) and float(getattr(item, 'stocked_qty', None)),
-            po_warehouse_qty or (temp_data.get("stocked_qty") if is_temporary else None)
+            po_warehouse_qty
         ),
         # Excel列29: 包装方式 - 优先快照字段 item.packaging，fallback packaging_method 或 packing_type
         "packaging": _snapshot_or_fallback(
             getattr(item, 'packaging', None),
-            temp_data.get("packaging_method") if is_temporary else package_data.get("packing_type")
+            package_data.get("packing_type")
         ),
-        "packaging_method": temp_data.get("packaging_method") if is_temporary else None,  # 保留兼容性
+        "packaging_method": None,  # 保留兼容性
         
         # === E组: 产品细节 (列30-38) ===
         # FixPlan Task 4: purchase_option 重命名为 purchase_option_name 对齐 UI
         "purchase_option_name": _snapshot_or_fallback(
             getattr(item, 'purchase_option_name', None),
-            temp_data.get("purchase_option") if is_temporary else None
+            None
         ),
-        "product_detail": temp_data.get("product_detail") if is_temporary else None,
+        "product_detail": None,
         # FixPlan Task 4: 工厂编号 优先快照字段
         "factory_no": _snapshot_or_fallback(
             getattr(item, 'factory_code', None),
@@ -686,7 +671,7 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         # 2026-06-23：注入产品默认报价，前端 col 10 报价列 fallback 用
         "price_rmb": float(product.price_rmb) if product and getattr(product, 'price_rmb', None) else None,
         "price_usd": float(product.price_usd) if product and getattr(product, 'price_usd', None) else None,
-        "invoice_status": temp_data.get("invoice_status") if is_temporary else None
+        "invoice_status": None
     }
     
     # 2026-06-26 修复："1件多箱"模式下，DB 的 carton_count 存的是"每件商品箱数"，
@@ -1060,13 +1045,13 @@ def get_pi_item(db: Session, item_id: int) -> PiProformaInvoiceItem:
 
 
 def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaInvoiceItem:
-    """更新 PI 订单项(用于临时产品转正 / 字段回填)
+    """更新 PI 订单项（字段回填）
     
     2026-06-22 完整版：支持41列字段中的所有可编辑字段
     
     支持字段分组:
-      - A组(基础): product_id, is_temporary, oe_number, customer_code, customer_model, detail_desc,
-                   unit_price, quantity, remark, temp_model, temp_image
+      - A组(基础): product_id, oe_number, customer_code, customer_model, detail_desc,
+                   unit_price, quantity, remark
       - B组(财务): customer_prepayment, remaining_payment, factory_deposit, factory_balance
       - D组(包装): packaging, pack_spec, carton_count, carton_gross_weight
       - E组(采购): purchase_option_name
@@ -1081,8 +1066,6 @@ def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaIn
     # ---- A组: 基础信息字段 ----
     if 'product_id' in update_data:
         db_item.product_id = update_data['product_id']
-    if 'is_temporary' in update_data:
-        db_item.is_temporary = 1 if update_data['is_temporary'] else 0
     if 'oe_number' in update_data:
         db_item.oe_number = update_data['oe_number']
     if 'customer_code' in update_data:
@@ -1464,70 +1447,11 @@ def _get_formal_records_dir() -> Path:
     return records_dir
 
 
-def _formalize_temporary_items(db: Session, pi: PiProformaInvoice) -> None:
-    """将 PI 下尚未转正的临时产品自动转正，并同步名称到产品表"""
-    from models.customer_product import PrdCustomerProduct
-    from crud.customer_product import update_and_confirm_temporary
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    for item in pi.items:
-        if getattr(item, 'is_deleted', False):
-            continue
-        if not item.product_id:
-            continue
-
-        product = db.query(PrdCustomerProduct).filter(
-            PrdCustomerProduct.id == item.product_id
-        ).first()
-        if not product:
-            continue
-
-        # PI item 或关联产品任一为临时，都触发转正
-        if not item.is_temporary and not product.is_temporary:
-            continue
-
-        # 使用 PI item 已有的描述作为产品名称；若为空则回退到 product_name 或型号
-        new_name = (
-            item.detail_desc
-            or product.detail_desc
-            or product.product_name
-            or f"产品-{item.customer_code or item.oe_number or product.customer_model or item.product_id}"
-        )
-
-        full_data = {
-            "product_name": new_name,
-            "detail_desc": new_name,
-            "customer_model": item.customer_model or product.customer_model or item.customer_code or item.oe_number,
-            "oe_number": item.oe_number or product.customer_model,
-        }
-
-        try:
-            update_and_confirm_temporary(db, product.id, full_data)
-            # 同步更新 PI item 本身
-            item.is_temporary = False
-            item.detail_desc = new_name
-            logger.info(f"[save_formal_record] 自动转正产品 id={product.id}, name={new_name}")
-        except Exception as e:
-            logger.warning(f"[save_formal_record] 自动转正产品 id={product.id} 失败: {e}")
-            continue
-
-    db.commit()
-
-
 def save_formal_record(db: Session, pi_id: int) -> str:
-    """将 PI 当前状态保存为 JSON 文件（正式纪录），返回文件路径
-
-    2026-06-23 修复：保存正式纪录时自动将 PI 下的临时产品转正，
-    并把产品名称同步回 PrdCustomerProduct，避免产品管理与订单详情名称不一致。
-    """
+    """将 PI 当前状态保存为 JSON 文件（正式纪录），返回文件路径"""
     pi = db.query(PiProformaInvoice).filter(PiProformaInvoice.id == pi_id).first()
     if not pi:
         raise ValueError(f"PI {pi_id} 不存在")
-
-    # 自动转正 PI 下尚未转正的临时产品
-    _formalize_temporary_items(db, pi)
 
     data = {
         "pi": {
