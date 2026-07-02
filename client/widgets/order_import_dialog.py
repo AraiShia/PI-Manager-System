@@ -47,7 +47,7 @@ class OrderImportDialog(QDialog):
     # 信号定义
     preview_loaded = Signal(list, list, int, int)  # headers, rows, total, columns
     match_completed = Signal(list)  # match results
-    import_completed = Signal(bool, int, int, list)  # success, success_count, failed_count, errors
+    import_completed = Signal(bool, int, int, list, list)  # success, success_count, failed_count, errors, created_order_ids
     error_occurred = Signal(str)  # error message
     
     def __init__(self, api_client, parent=None, is_supplement_mode=False, order_id=None):
@@ -69,6 +69,7 @@ class OrderImportDialog(QDialog):
         # 用于在导入时过滤原始 Excel 文件，避免删除的行被导入
         self._deleted_preview_indices = set()
         self._duplicate_groups = []
+        self._created_order_ids = []
 
         self.setWindowTitle("补充商品" if is_supplement_mode else "订单导入")
         self.setMinimumSize(1000, 700)
@@ -108,8 +109,12 @@ class OrderImportDialog(QDialog):
 
         # [问题 #27] 补充商品模式：客户应自动读取当前订单，无需选择
         # 隐藏客户选择（继承当前订单客户）
+        if hasattr(self, 'customer_search'):
+            self.customer_search.hide()
         if hasattr(self, 'customer_combo'):
             self.customer_combo.hide()
+        if hasattr(self, 'add_customer_btn'):
+            self.add_customer_btn.hide()
         if hasattr(self, 'load_customer_btn'):
             self.load_customer_btn.hide()
 
@@ -1533,7 +1538,7 @@ class OrderImportDialog(QDialog):
             
             if response and response.get('success'):
                 # 发送信号通知父窗口刷新
-                self.import_completed.emit(True, len(rows), 0, [])
+                self.import_completed.emit(True, len(rows), 0, [], [])
                 QMessageBox.information(
                     self,
                     "补充完成",
@@ -1552,8 +1557,8 @@ class OrderImportDialog(QDialog):
         finally:
             self.import_btn.setEnabled(True)
     
-    @Slot(bool, int, int, list)
-    def on_import_completed(self, success: bool, success_count: int, failed_count: int, errors: list):
+    @Slot(bool, int, int, list, list)
+    def on_import_completed(self, success: bool, success_count: int, failed_count: int, errors: list, created_order_ids: list):
         """导入完成"""
         if success:
             QMessageBox.information(
@@ -1561,6 +1566,8 @@ class OrderImportDialog(QDialog):
                 "导入完成",
                 f"导入完成！\n成功: {success_count} 个产品\n失败: {failed_count} 个产品"
             )
+            # 把新创建的订单 ID 暂存，方便父窗口导入后直接进入详情
+            self._created_order_ids = created_order_ids or []
             # 点击确定后自动关闭对话框，父窗口将刷新订单列表
             self.accept()
         else:
@@ -1898,7 +1905,7 @@ class MatchWorker(QThread):
 
 class ImportWorker(QThread):
     """导入工作线程"""
-    import_completed = Signal(bool, int, int, list)
+    import_completed = Signal(bool, int, int, list, list)
     error = Signal(str)
     
     def __init__(self, api_client, file_path: str, customer_id: int = None):
@@ -1923,7 +1930,8 @@ class ImportWorker(QThread):
                     response.get('success', False),
                     response.get('success_count', 0),
                     response.get('failed_count', 0),
-                    response.get('errors', [])
+                    response.get('errors', []),
+                    response.get('created_orders', [])
                 )
             else:
                 self.error.emit('无响应')

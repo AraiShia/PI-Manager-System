@@ -3929,7 +3929,7 @@ class MainWindow(QMainWindow):
             print(f"[ERROR] 补充商品对话框模块未找到: {e}")
             QMessageBox.warning(self, "错误", f"补充商品功能模块未找到: {str(e)}")
     
-    def _on_supplement_completed(self, success, success_count, failed_count, errors):
+    def _on_supplement_completed(self, success, success_count, failed_count, errors, created_order_ids=None):
         """[6.2.1] 补充商品完成回调"""
         if success:
             print(f"[6.2.1] 补充商品完成: {success_count} 个")
@@ -3937,7 +3937,29 @@ class MainWindow(QMainWindow):
             if hasattr(self, '_order_summary_tab'):
                 self._order_summary_tab.get_service().refresh_cache()
             self._reload_order_detail()
-    
+
+    def _on_import_completed(self, success, success_count, failed_count, errors, created_order_ids=None):
+        """导入订单完成回调：成功后刷新并打开第一个新订单详情"""
+        if not success:
+            return
+
+        print(f"[INFO] 订单导入完成: {success_count} 个成功, 新订单 IDs={created_order_ids}")
+        self._update_order_summary_view()
+
+        order_id = (created_order_ids or [None])[0]
+        if not order_id:
+            return
+
+        try:
+            detail = self.api_client.get_pi_detail(order_id)
+            if detail:
+                self._show_order_detail(detail)
+                print(f"[INFO] 已打开新订单详情: PI_ID={order_id}")
+            else:
+                print(f"[WARN] 无法获取新订单详情: PI_ID={order_id}")
+        except Exception as e:
+            print(f"[ERROR] 打开新订单详情失败: {e}")
+
     def _reload_order_detail(self):
         """[6.2.1] 重新加载订单详情"""
         if hasattr(self, '_current_order_detail'):
@@ -4211,6 +4233,7 @@ class MainWindow(QMainWindow):
             
             dialog = OrderImportDialog(self.api_client, self)
             dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            dialog.import_completed.connect(self._on_import_completed)
             dialog.exec()
             
             print("[INFO] 订单导入对话框已关闭，刷新订单总表...")
