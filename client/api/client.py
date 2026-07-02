@@ -449,6 +449,10 @@ class ApiClient:
         """更新PI订单项"""
         return self.put(f"/pi/items/{item_id}", data)
 
+    def change_supplier(self, item_id: int, data: Dict) -> Dict:
+        """更换PI订单项供应商并重新生成采购单"""
+        return self.put(f"/pi/items/{item_id}/change-supplier", data)
+
     # 2026-06-12 需求#40：软删除 / 入库 API
     def delete_pi_item(self, item_id: int) -> Dict:
         """软删除 PI 单品"""
