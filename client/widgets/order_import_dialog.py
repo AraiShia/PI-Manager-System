@@ -21,6 +21,16 @@ import os
 import tempfile
 from openpyxl import load_workbook, Workbook
 
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.duplicate_detector import (
+    extract_preview_duplicate_key,
+    find_preview_duplicates,
+    filter_duplicate_indices,
+    _normalize,
+)
+
 
 class OrderImportDialog(QDialog):
     """
@@ -54,9 +64,10 @@ class OrderImportDialog(QDialog):
         # 2026-06-23：客户-产品表缓存（非补充模式也预初始化便于测试）
         self._db_existing_models = {}  # model -> product dict
         self._db_models_loaded = False  # 标记是否已完成加载（避免 race condition）
-        # 🔧 2026-06-29：用户右键删除预览行时记录被删除的索引（相对 _raw_preview_rows），
+        # 2026-06-29：用户右键删除预览行时记录被删除的索引（相对 _raw_preview_rows），
         # 用于在导入时过滤原始 Excel 文件，避免删除的行被导入
         self._deleted_preview_indices = set()
+        self._duplicate_groups = []
 
         self.setWindowTitle("补充商品" if is_supplement_mode else "订单导入")
         self.setMinimumSize(1000, 700)
@@ -554,6 +565,9 @@ class OrderImportDialog(QDialog):
             if item:
                 item.setBackground(QColor("#dbeafe"))
 
+        self._refresh_duplicate_highlight()
+        self._warn_if_duplicate_added()
+
         QMessageBox.information(
             self,
             "成功",
@@ -561,7 +575,74 @@ class OrderImportDialog(QDialog):
             f"客户产品编号: {product_data.get('customer_code')}\n"
             f"数量: {product_data.get('quantity')}"
         )
-    
+
+    def _warn_if_duplicate_added(self):
+        """单条新增后若造成重复，立即弹窗提示。"""
+        duplicates = getattr(self, '_duplicate_groups', [])
+        if not duplicates:
+            return
+        displays = [g['display'] for g in duplicates[:10]]
+        msg = "检测到重复产品：\n" + "\n".join(f"- {d}" for d in displays)
+        QMessageBox.information(self, "重复产品提示", msg)
+
+    def _refresh_duplicate_highlight(self):
+        """刷新预览表中重复行的高亮与状态标签。"""
+        if not self.preview_table or self.preview_table.rowCount() == 0:
+            return
+
+        rows = self.preview_data.get('rows', []) if self.preview_data else []
+        headers = self.preview_data.get('headers', [])
+        model_col_idx = self._find_model_column(headers) if headers else None
+
+        existing_keys = self._build_existing_duplicate_keys()
+        duplicates = find_preview_duplicates(rows, headers, model_col_idx, existing_keys)
+        self._duplicate_groups = duplicates
+
+        duplicate_indices = set()
+        for group in duplicates:
+            duplicate_indices.update(group['indices'])
+
+        yellow = QColor("#fef3c7")
+        white = QColor("#ffffff")
+        preserve_colors = {"#fee2e2", "#dbeafe"}
+        for r in range(self.preview_table.rowCount()):
+            is_duplicate = r in duplicate_indices
+            for c in range(self.preview_table.columnCount()):
+                item = self.preview_table.item(r, c)
+                if not item:
+                    continue
+                if is_duplicate:
+                    item.setBackground(yellow)
+                else:
+                    current = item.background().color().name().lower()
+                    if current not in preserve_colors:
+                        item.setBackground(white)
+
+        self._refresh_preview_stats()
+
+    def _build_existing_duplicate_keys(self) -> set:
+        """构建补充模式下已存在产品的判定键集合。"""
+        existing_keys = set()
+        if not self.is_supplement_mode:
+            return existing_keys
+
+        # 当前订单已有产品
+        for item in (self._supplement_order_data or {}).get('items', []):
+            product_id = item.get('product_id')
+            if product_id:
+                existing_keys.add(f"product_id:{product_id}")
+            model = _normalize(item.get('model') or '')
+            if model:
+                existing_keys.add(f"model:{model}")
+
+        # 客户-产品表已有 Model
+        for model in (self._db_existing_models or {}).keys():
+            model = _normalize(model)
+            if model:
+                existing_keys.add(f"model:{model}")
+
+        return existing_keys
+
     @Slot()
     def load_customers(self):
         """加载客户列表"""
@@ -659,16 +740,13 @@ class OrderImportDialog(QDialog):
         model_col_idx = self._find_model_column(headers)
         qty_col_idx = self._find_qty_column(headers)
 
-        # [6.2.1/6.2.23] 补充商品模式下过滤已存在的商品
+        # [6.2.1/6.2.23] 补充商品模式下不再自动过滤已存在商品
         if self.is_supplement_mode:
-            # 若 DB 还在加载，调度一次重过滤；否则直接过滤
-            if not self._db_models_loaded:
-                self._load_db_existing_products(on_loaded=self._refilter_preview_after_db_load)
-            self._skipped_indices = self._compute_skipped_indices(rows, headers)
-            display_rows = [r for i, r in enumerate(rows) if i not in self._skipped_indices]
-            self.preview_data['rows'] = display_rows
-            self.preview_data['total'] = len(display_rows)
-            total = len(display_rows)
+            self._skipped_indices = set()
+            display_rows = rows
+            self.preview_data['rows'] = rows
+            self.preview_data['total'] = len(rows)
+            total = len(rows)
         else:
             display_rows = rows
             self.preview_data['rows'] = rows
@@ -723,25 +801,11 @@ class OrderImportDialog(QDialog):
         if self.is_supplement_mode:
             self._highlight_temp_rows()
 
-        suffix = "（已过滤重复商品）" if self.is_supplement_mode else ""
-        # 2026-06-23：DB 还在加载时给出提示
-        if self.is_supplement_mode and not self._db_models_loaded:
-            suffix = "（客户-产品表加载中…）"
-
-        # 2026-06-25：添加不完整行提示
-        if incomplete_count > 0:
-            incomplete_suffix = f"，{incomplete_count} 行不完整（红色标注）"
-            if not self.keep_incomplete_checkbox.isChecked():
-                incomplete_suffix += "（将被跳过）"
-            else:
-                incomplete_suffix += "（已勾选保留）"
-        else:
-            incomplete_suffix = ""
-
-        self.preview_status_label.setText(f"共 {total} 行数据" + suffix + incomplete_suffix)
-        self.preview_status_label.setStyleSheet("color: #dc2626; font-weight: bold;" if incomplete_count > 0 else "color: gray; font-style: italic;")
         self.import_btn.setEnabled(True)
         self.preview_btn.setEnabled(True)
+
+        # 刷新重复高亮与统计信息
+        self._refresh_duplicate_highlight()
 
     def _refilter_preview_after_db_load(self):
         """[6.2.23] DB 客户-产品表加载完成后重过滤预览表（仅在补充商品模式生效）"""
@@ -803,16 +867,24 @@ class OrderImportDialog(QDialog):
             self._deleted_preview_indices.add(raw_index)
             print(f"[删除行] preview 行 {row} → _raw_preview_rows 索引 {raw_index}")
 
+        # 同步从数据列表中移除，保证重复检测与后续导入一致
+        preview_rows = self.preview_data.get('rows') if self.preview_data else None
+        if preview_rows is not None and 0 <= row < len(preview_rows):
+            del preview_rows[row]
+            self.preview_data['total'] = len(preview_rows)
+        if getattr(self, '_raw_preview_rows', None) is not preview_rows and 0 <= row < len(getattr(self, '_raw_preview_rows', [])):
+            del self._raw_preview_rows[row]
+        if getattr(self, '_initial_preview_rows', None) is not preview_rows and 0 <= row < len(getattr(self, '_initial_preview_rows', [])):
+            del self._initial_preview_rows[row]
+
         self.preview_table.removeRow(row)
         # 重新编号（第一列）
         for r in range(self.preview_table.rowCount()):
             idx_item = self.preview_table.item(r, 0)
             if idx_item:
                 idx_item.setText(str(r + 1))
-        # 刷新预览统计
-        self._refresh_preview_stats()
-        # 重新高亮临时行
-        self._highlight_temp_rows()
+        # 刷新重复高亮与统计
+        self._refresh_duplicate_highlight()
 
     def _map_display_row_to_raw_index(self, display_row: int) -> Optional[int]:
         """将 preview_table 的显示行号映射到 _raw_preview_rows 中的原始索引
@@ -837,6 +909,7 @@ class OrderImportDialog(QDialog):
     def _refresh_preview_stats(self):
         """刷新预览统计信息"""
         total = self.preview_table.rowCount()
+        duplicate_count = len(getattr(self, '_duplicate_groups', []))
         # 统计临时行
         temp_count = sum(
             1 for r in range(total)
@@ -846,7 +919,13 @@ class OrderImportDialog(QDialog):
         incomplete_count = self._count_incomplete_rows()
 
         # 文字
-        text = f"共 {total} 行数据（{temp_count} 行临时商品）"
+        headers = (self.preview_data or {}).get('headers') or []
+        if not headers:
+            text = f"共 {total} 行数据（手动添加 {total} 条）"
+        else:
+            text = f"共 {total} 行数据（{temp_count} 行临时商品）"
+        if duplicate_count > 0:
+            text += f"（{duplicate_count} 个重复产品）"
         if incomplete_count > 0:
             keep = self.keep_incomplete_checkbox.isChecked()
             if keep:
@@ -1088,31 +1167,128 @@ class OrderImportDialog(QDialog):
             # 产品创建成功，刷新匹配
             self.start_auto_match()
     
+    def _confirm_and_filter_duplicates(self) -> bool:
+        """
+        导入前检测重复并弹窗让用户选择。
+
+        Returns:
+            True: 继续导入（可能已过滤重复行）
+            False: 取消导入
+        """
+        rows = self.preview_data.get('rows', []) if self.preview_data else []
+        if not rows:
+            return True
+
+        headers = self.preview_data.get('headers', [])
+        model_col_idx = self._find_model_column(headers) if headers else None
+        existing_keys = self._build_existing_duplicate_keys()
+        duplicates = find_preview_duplicates(rows, headers, model_col_idx, existing_keys)
+
+        if not duplicates:
+            return True
+
+        displays = [g['display'] for g in duplicates[:10]]
+        msg = "检测到以下重复产品：\n" + "\n".join(f"- {d}" for d in displays)
+
+        box = QMessageBox(self)
+        box.setWindowTitle("检测到重复产品")
+        box.setText(msg + "\n\n请选择处理方式：")
+        continue_btn = box.addButton("继续导入", QMessageBox.AcceptRole)
+        skip_btn = box.addButton("跳过重复行", QMessageBox.DestructiveRole)
+        cancel_btn = box.addButton("取消", QMessageBox.RejectRole)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == cancel_btn:
+            return False
+        if clicked == skip_btn:
+            keep = filter_duplicate_indices(len(rows), duplicates)
+            skip_indices = set(range(len(rows))) - set(keep)
+            for i in skip_indices:
+                raw_idx = self._map_display_row_to_raw_index(i)
+                if raw_idx is not None:
+                    self._deleted_preview_indices.add(raw_idx)
+            self.preview_data['rows'] = [rows[i] for i in keep]
+            self.preview_data['total'] = len(self.preview_data['rows'])
+            self._rebuild_preview_table_from_rows()
+            self._refresh_duplicate_highlight()
+        return True
+
+    def _rebuild_preview_table_from_rows(self):
+        """根据 self.preview_data['rows'] 重建预览表格（仅用于跳过重复行后）。"""
+        rows = self.preview_data.get('rows', [])
+        headers = self.preview_data.get('headers', [])
+        self.preview_table.setRowCount(0)
+
+        if not rows:
+            self.preview_table.setColumnCount(0)
+            return
+
+        if rows and isinstance(rows[0], dict):
+            # 单条新增行展示字段顺序与 _add_single_product_to_preview 一致
+            display_headers = ['行号', '客户产品编号', 'OE号', '数量', '单价', '状态']
+            self.preview_table.setColumnCount(len(display_headers))
+            self.preview_table.setHorizontalHeaderLabels(display_headers)
+            self.preview_table.setRowCount(len(rows))
+            for row_idx, row in enumerate(rows):
+                self.preview_table.setItem(row_idx, 0, QTableWidgetItem(str(row_idx + 1)))
+                values = [
+                    row.get('customer_code', ''),
+                    row.get('oe_number', '') or '',
+                    str(row.get('quantity', 1)),
+                    f"${float(row.get('unit_price', 0)):.2f}" if row.get('unit_price') else '',
+                    '正式',
+                ]
+                for col_idx, value in enumerate(values):
+                    self.preview_table.setItem(
+                        row_idx, col_idx + 1,
+                        QTableWidgetItem(value)
+                    )
+        else:
+            display_headers = ['行号'] + headers
+            self.preview_table.setColumnCount(len(display_headers))
+            self.preview_table.setHorizontalHeaderLabels(display_headers)
+            self.preview_table.setRowCount(len(rows))
+            for row_idx, row in enumerate(rows):
+                self.preview_table.setItem(row_idx, 0, QTableWidgetItem(str(row_idx + 1)))
+                if isinstance(row, (list, tuple)):
+                    for col_idx, value in enumerate(row):
+                        self.preview_table.setItem(
+                            row_idx, col_idx + 1,
+                            QTableWidgetItem(str(value) if value else "")
+                        )
+
+        self.preview_table.resizeColumnsToContents()
+        self.preview_table.setColumnWidth(0, 50)
+
     @Slot()
     def start_import(self):
         """开始导入"""
         if not self.preview_data:
             QMessageBox.warning(self, "提示", "请先加载预览数据")
             return
-        
+
         total_rows = self.preview_data.get('total', len(self.preview_data.get('rows', [])))
-        
+
         if total_rows == 0:
             QMessageBox.warning(self, "提示", "没有可导入的商品（已全部存在）")
             return
-        
+
         # [6.2.1] 补充商品模式使用不同的导入逻辑
         if self.is_supplement_mode:
             self._start_supplement_import()
             return
-        
+
+        if not self._confirm_and_filter_duplicates():
+            return
+
         # 2026-06-25：过滤不完整的行
         keep_incomplete = self.keep_incomplete_checkbox.isChecked()
         headers = self.preview_data.get('headers', [])
         model_col_idx = self._find_model_column(headers)
         qty_col_idx = self._find_qty_column(headers)
         rows = self.preview_data.get('rows', [])
-        
+
         filtered_rows = []
         skipped_incomplete = 0
         for row in rows:
@@ -1122,16 +1298,16 @@ class OrderImportDialog(QDialog):
                     filtered_rows.append(row)
             else:
                 filtered_rows.append(row)
-        
+
         # 更新预览数据
         self.preview_data['rows'] = filtered_rows
         self.preview_data['total'] = len(filtered_rows)
         total_rows = len(filtered_rows)
-        
+
         if total_rows == 0:
             QMessageBox.warning(self, "提示", f"没有可导入的商品（已过滤 {skipped_incomplete} 行不完整数据）")
             return
-        
+
         # 原订单导入逻辑
         # 确认导入
         warning_msg = f"即将导入{total_rows}个商品"
@@ -1220,8 +1396,11 @@ class OrderImportDialog(QDialog):
     
     def _start_supplement_import(self):
         """[6.2.1] 补充商品导入"""
+        if not self._confirm_and_filter_duplicates():
+            return
+
         total_rows = self.preview_data.get('total', len(self.preview_data.get('rows', [])))
-        
+
         reply = QMessageBox.question(
             self,
             "确认补充",
