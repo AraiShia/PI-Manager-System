@@ -186,15 +186,25 @@ class OrderImportDialog(QDialog):
         customer_layout = QHBoxLayout()
         customer_label = QLabel("客户：")
         customer_layout.addWidget(customer_label)
-        
+
+        # 🔧 2026-07-02 把"加载"按钮改为搜索框，支持按客户名/区域模糊搜索
+        self.customer_search = QLineEdit()
+        self.customer_search.setPlaceholderText("搜索客户名称/区域")
+        self.customer_search.setMinimumWidth(200)
+        self.customer_search.setClearButtonEnabled(True)
+        self.customer_search.textChanged.connect(self._filter_customers)
+        customer_layout.addWidget(self.customer_search)
+
         self.customer_combo = QComboBox()
         self.customer_combo.setMinimumWidth(200)
+        self.customer_combo.currentIndexChanged.connect(self._on_customer_changed)
         customer_layout.addWidget(self.customer_combo)
-        
+
+        # 兼容旧代码：保留 load_customer_btn 引用但隐藏
         self.load_customer_btn = QPushButton("加载")
         self.load_customer_btn.clicked.connect(self.load_customers)
-        customer_layout.addWidget(self.load_customer_btn)
-        
+        self.load_customer_btn.hide()
+
         customer_layout.addStretch()
         layout.addLayout(customer_layout)
         
@@ -574,26 +584,45 @@ class OrderImportDialog(QDialog):
         try:
             response = self.api_client.get("/customers/")
             if response:
-                self.customer_combo.clear()
-                self.customer_combo.addItem("请选择客户", None)
-                for customer in response:
-                    self.customer_combo.addItem(
-                        customer.get('customer_name', ''), 
-                        customer.get('id'))
-                    # 存储完整客户信息到 UserRole+1（不影响 currentData() 返回 ID）
-                    self.customer_combo.setItemData(
-                        self.customer_combo.count() - 1, 
-                        customer, 
-                        Qt.ItemDataRole.UserRole + 1)
-            
-            # 连接信号
-            self.customer_combo.currentIndexChanged.connect(self._on_customer_changed)
+                # 🔧 2026-07-02 保存完整客户列表，用于搜索过滤
+                self._all_customers = list(response)
+                self._filter_customers(self.customer_search.text() if hasattr(self, 'customer_search') else "")
 
             # 初始化单条新增按钮状态
             QTimer.singleShot(100, self._update_single_add_button_state)
         except Exception as e:
             QMessageBox.warning(self, "错误", f"加载客户失败: {e}")
-    
+
+    def _filter_customers(self, keyword: str):
+        """根据搜索关键词过滤客户列表（按客户名或区域模糊匹配）"""
+        if not hasattr(self, '_all_customers'):
+            return
+
+        # 阻止信号触发（避免刷新PI预览）
+        self.customer_combo.blockSignals(True)
+        try:
+            self.customer_combo.clear()
+            self.customer_combo.addItem("请选择客户", None)
+
+            keyword_lower = keyword.strip().lower()
+            for customer in self._all_customers:
+                name = (customer.get('customer_name') or '').lower()
+                region = (customer.get('region') or customer.get('country') or '').lower()
+                code = (customer.get('customer_code') or '').lower()
+
+                # 关键词为空显示全部；否则按客户名/区域/客户代码匹配
+                if not keyword_lower or keyword_lower in name or keyword_lower in region or keyword_lower in code:
+                    self.customer_combo.addItem(
+                        customer.get('customer_name', ''),
+                        customer.get('id'))
+                    # 存储完整客户信息到 UserRole+1
+                    self.customer_combo.setItemData(
+                        self.customer_combo.count() - 1,
+                        customer,
+                        Qt.ItemDataRole.UserRole + 1)
+        finally:
+            self.customer_combo.blockSignals(False)
+
     @Slot()
     def browse_file(self):
         """浏览并选择文件"""
