@@ -13,10 +13,6 @@ from crud.customer_product import (
     get_product_codes, get_product_oes, add_product_code, add_product_oe,
     delete_product_code, delete_product_oe, set_primary_code, set_primary_oe,
     batch_add_codes, batch_add_oes, search_by_oe_number, search_by_code,
-    # Phase 2: 临时产品相关
-    convert_temporary_to_official, get_temporary_products,
-    # 2026-06-16 修复 log.txt 404：完整版转正+更新
-    update_and_confirm_temporary,
 )
 from crud.customer import get_customer as get_customer_by_id
 from schemas.customer_product import (
@@ -139,12 +135,11 @@ def _build_response(customer_product, db: Session):
 def list_customer_products(
     customer_id: Optional[int] = Query(None, description="客户ID"),
     search: Optional[str] = Query(None, description="搜索关键词"),
-    is_temporary: Optional[bool] = Query(None, description="Phase 2: 是否临时产品（True/False/None全部）"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """获取客户产品列表（Phase 2: 支持临时/正式产品筛选）"""
+    """获取客户产品列表"""
     skip = (page - 1) * page_size
     items, total = get_customer_products(
         db,
@@ -152,7 +147,6 @@ def list_customer_products(
         search=search,
         skip=skip,
         limit=page_size,
-        is_temporary=is_temporary,
     )
 
     return CustomerProductListResponse(
@@ -161,67 +155,6 @@ def list_customer_products(
         page=page,
         page_size=page_size,
     )
-
-
-# ============ Phase 2: 临时产品端点 ============
-
-@router.get("/temporary", response_model=List[CustomerProductResponse])
-def list_temporary_products(
-    customer_id: Optional[int] = Query(None, description="客户ID"),
-    db: Session = Depends(get_db),
-):
-    """获取临时产品列表（Phase 2 新增）"""
-    items, _ = get_temporary_products(db, customer_id=customer_id, limit=1000)
-    return [_build_response(item, db) for item in items]
-
-
-@router.post("/temporary", response_model=CustomerProductResponse, status_code=201)
-def create_temporary_product(
-    data: CustomerProductCreate,
-    db: Session = Depends(get_db),
-):
-    """
-    创建临时产品（Phase 2 新增）
-    强制 is_temporary=True，单表存储
-    """
-    # 强制设为临时
-    data.is_temporary = True
-    customer_product = create_customer_product(db, data)
-    return _build_response(customer_product, db)
-
-
-@router.patch("/{product_id}/convert", response_model=CustomerProductResponse)
-def convert_temporary_product_to_official(
-    product_id: int,
-    db: Session = Depends(get_db),
-):
-    """
-    临时产品转正（Phase 2 新增）
-    将 is_temporary=False，不创建新记录
-    """
-    customer_product = convert_temporary_to_official(db, product_id)
-    if not customer_product:
-        raise HTTPException(status_code=404, detail=f"客户产品 {product_id} 不存在")
-    return _build_response(customer_product, db)
-
-
-@router.post("/{product_id}/confirm", response_model=CustomerProductResponse)
-def confirm_temporary_product_endpoint(
-    product_id: int,
-    full_data: dict,
-    db: Session = Depends(get_db),
-):
-    """2026-06-16 修复 log.txt 404：完整版转正 + 字段更新
-
-    兼容旧 `crud/product.py::confirm_temporary_product`（Phase 5 后 PrdProduct 表已删除）。
-    直接更新 PrdCustomerProduct 记录并清除 `is_temporary` 标记。
-
-    Path: POST /api/customer-products/{product_id}/confirm
-    """
-    customer_product = update_and_confirm_temporary(db, product_id, full_data)
-    if not customer_product:
-        raise HTTPException(status_code=404, detail=f"客户产品 {product_id} 不存在")
-    return _build_response(customer_product, db)
 
 
 @router.get("/by-customer/{customer_id}", response_model=List[CustomerProductResponse])
