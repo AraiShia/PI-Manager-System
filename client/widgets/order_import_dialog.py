@@ -100,7 +100,12 @@ class OrderImportDialog(QDialog):
         # 操作按钮区域
         button_layout = self._create_button_layout()
         self.main_layout.addLayout(button_layout)
-    
+
+        # 禁止所有按钮成为默认按钮，避免回车误触（如触发浏览文件/导入等）
+        for btn in self.findChildren(QPushButton):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
+
     def _init_supplement_mode(self):
         """[6.2.1] 初始化补充商品模式"""
         # 隐藏 PI 号预览区域

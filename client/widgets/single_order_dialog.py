@@ -188,7 +188,12 @@ class SingleOrderDialog(QDialog):
         btn_layout.addWidget(save_btn)
         
         layout.addLayout(btn_layout)
-        
+
+        # 禁止所有按钮成为默认按钮，避免回车误触保存/取消
+        for btn in self.findChildren(QPushButton):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
+
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
         self.search_timer.timeout.connect(self.perform_search)
