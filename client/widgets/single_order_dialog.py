@@ -231,24 +231,27 @@ class SingleOrderDialog(QDialog):
         self.selected_product_label.setText("未选择产品")
 
     def on_search_text_changed(self, text):
-        """搜索文本变化时延迟搜索（防抖）"""
+        """搜索文本变化时延迟搜索（防抖，150ms 快速反馈）"""
         self.search_timer.stop()
         if len(text) >= 2:
-            self.search_timer.start(300)
+            self.search_results_combo.setPlaceholderText("搜索中...")
+            self.search_timer.start(150)
         else:
             self.search_results_combo.clear()
-    
+            self.search_results_combo.setPlaceholderText("请输入至少 2 个字符")
+
     def perform_search(self):
         """执行产品搜索"""
         keyword = self.product_search_input.text().strip()
         if len(keyword) < 2:
             return
-        
+
         field = self.search_field_combo.currentData()
-        
+
         try:
             response = self.api_client.get(f"/products/search?keyword={keyword}&limit=20&fields={field}")
             if not response:
+                self.search_results_combo.setPlaceholderText("搜索失败，请重试")
                 return
 
             if isinstance(response, dict):
@@ -259,8 +262,11 @@ class SingleOrderDialog(QDialog):
             if isinstance(results, list):
                 self.search_results = results
                 self.update_search_results_list()
+                if not results:
+                    self.search_results_combo.setPlaceholderText("无匹配产品")
         except Exception as e:
             print(f"[单条新增] 搜索失败: {e}")
+            self.search_results_combo.setPlaceholderText("搜索失败，请重试")
     
     def _product_display_text(self, product: dict) -> str:
         """生成搜索结果展示文本"""
