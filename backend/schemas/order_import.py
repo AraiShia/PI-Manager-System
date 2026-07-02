@@ -206,9 +206,9 @@ class PreviewResponse(BaseModel):
 class BatchMatchRequest(BaseModel):
     """批量匹配请求"""
     items: List[MatchItem] = Field(..., min_length=1, max_length=1000, description="匹配项列表")
-    # 2026-06-23 新增：导入时静默创建 temp（未匹配行静默写 PrdCustomerProduct）
-    auto_create_temporary: bool = Field(default=False, description="True 时未匹配项静默创建 temp 产品（导入场景）")
-    customer_id: Optional[int] = Field(default=None, ge=1, description="客户ID（auto_create_temporary=True 时必填）")
+    # 已废弃：临时产品功能已去除，字段保留仅用于兼容旧请求
+    auto_create_temporary: bool = Field(default=False, description="已废弃，不再影响逻辑")
+    customer_id: Optional[int] = Field(default=None, ge=1, description="已废弃，逻辑改由 item.customer_id 决定")
 
     model_config = ConfigDict(extra='forbid')
 
@@ -218,10 +218,10 @@ class BatchMatchResultItem(BaseModel):
     input: MatchItem = Field(..., description="输入数据")
     matches: List[ProductMatchResult] = Field(default=[], description="匹配结果列表")
     best_match: Optional[ProductMatchResult] = Field(None, description="最佳匹配")
-    # 2026-06-23 新增：导入流程的状态/产品信息
+    # 导入流程的状态/产品信息
     status: str = Field(
         default="unmatched",
-        description="matched | created_temp | reused_existing | unmatched",
+        description="matched | created | reused_existing | unmatched",
     )
     product_id: Optional[int] = Field(default=None, description="匹配/创建/复用后的 product_id（前端导入时直接用）")
     dedup_hit: bool = Field(default=False, description="是否因 customer_id+model 命中已存在产品")

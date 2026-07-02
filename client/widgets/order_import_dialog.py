@@ -1597,7 +1597,7 @@ class PreviewWorker(QThread):
 
 
 class MatchWorker(QThread):
-    """自动匹配工作线程（2026-06-23 扩展：支持 auto_create_temporary）"""
+    """自动匹配工作线程"""
     match_completed = Signal(list)
     error = Signal(str)
 
@@ -1608,17 +1608,16 @@ class MatchWorker(QThread):
         self.customer_id = customer_id
 
     def run(self):
-        """执行自动匹配 + 静默创建 temp"""
+        """执行自动匹配 + 静默创建正式客户产品"""
         try:
             # 准备匹配项 - 只发送必要的字段
             items = []
             for idx, row in enumerate(self.rows):
                 # 假设列顺序：客户产品编号(2), OE号(3), 产品描述(4)
-                # 2026-06-23：增加 customer_model 列（Excel 第 8 列）
                 customer_code = row[2] if len(row) > 2 else None
                 oe_number = row[3] if len(row) > 3 else None
                 product_name = row[4] if len(row) > 4 else None
-                customer_model = row[7] if len(row) > 7 else None  # 2026-06-23 新增
+                customer_model = row[7] if len(row) > 7 else None
 
                 # 清理可能的货币符号
                 if customer_code and isinstance(customer_code, str):
@@ -1631,19 +1630,15 @@ class MatchWorker(QThread):
                     customer_model = customer_model.strip()
 
                 item = {
+                    'customer_id': self.customer_id,
                     'customer_code': customer_code or None,
                     'oe_number': oe_number or None,
                     'product_name': product_name or None,
-                    'customer_model': customer_model or None,  # 2026-06-23 新增
+                    'customer_model': customer_model or None,
                 }
                 items.append(item)
 
-            # 2026-06-23：发送 auto_create_temporary + customer_id
-            payload = {
-                'items': items,
-                'auto_create_temporary': True,
-                'customer_id': self.customer_id,
-            }
+            payload = {'items': items}
             response = self.api_client.post("/products/batch-match", data=payload)
 
             if response and response.get('success'):

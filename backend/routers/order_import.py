@@ -876,22 +876,15 @@ async def batch_match_products(
     批量匹配产品
     - 支持最多1000条同时匹配
     - 返回每个输入项的匹配结果
-    - 2026-06-23 扩展：auto_create_temporary=True 时，未匹配项自动创建 temp 产品
+    - 无匹配项自动创建/复用正式客户产品
     """
     try:
-        from crud.customer_product import find_or_create_temp_customer_product
-        from schemas.customer_product import CustomerProductResponse
+        from crud.customer_product import create_customer_product
+        from schemas.customer_product import CustomerProductCreate, CustomerProductResponse
+        from models.customer_product import PrdCustomerProduct
 
         matcher = ProductMatcher(db)
         results = []
-
-        # 2026-06-23 校验：auto_create_temporary=True 时 customer_id 必填
-        # 2026-06-23 回滚说明：前端不发 auto_create_temporary=true 即关闭本特性，旧行为完全保留。
-        if request.auto_create_temporary and not request.customer_id:
-            raise HTTPException(
-                status_code=422,
-                detail="auto_create_temporary=True 时必须传入 customer_id",
-            )
 
         for item in request.items:
             matches = matcher.match_product(
@@ -926,7 +919,7 @@ async def batch_match_products(
                     brand=best_match.get('brand')
                 )
 
-            # 2026-06-23 默认状态：未匹配
+            # 默认状态：未匹配
             status = "unmatched"
             product_id_out: Optional[int] = None
             dedup_hit = False
@@ -936,22 +929,33 @@ async def batch_match_products(
                 # 命中现有产品
                 status = "matched"
                 product_id_out = best_match['product_id']
-            elif request.auto_create_temporary:
-                # 导入场景：未匹配 → 静默创建/复用 temp 产品
+            else:
+                # 导入场景：未匹配 → 静默创建/复用正式客户产品
                 # 优先使用 item.customer_id（导入行级别），回退到 request.customer_id
                 cust_id = item.customer_id or request.customer_id
-                row = {
-                    'customer_model': item.model or item.customer_code,
-                    'oe_number': item.oe_number,
-                    'product_name': item.product_name,
-                    'customer_remark': None,
-                    'unit_price': None,
-                }
-                product, created = find_or_create_temp_customer_product(db, cust_id, row)
-                status = "created_temp" if created else "reused_existing"
-                dedup_hit = not created
-                product_id_out = product.id
-                product_dict = CustomerProductResponse.model_validate(product).model_dump(mode='json')
+                model = item.model or item.customer_code
+                if cust_id and model is not None:
+                    existing = db.query(PrdCustomerProduct).filter(
+                        PrdCustomerProduct.customer_id == cust_id,
+                        PrdCustomerProduct.customer_model == model,
+                    ).first()
+                    if existing:
+                        product = existing
+                        created = False
+                    else:
+                        cp_data = CustomerProductCreate(
+                            customer_id=cust_id,
+                            customer_model=model,
+                            product_name=item.product_name,
+                            detail_desc=item.product_name,
+                            oes=[item.oe_number] if item.oe_number else None,
+                        )
+                        product = create_customer_product(db, cp_data)
+                        created = True
+                    status = "created" if created else "reused_existing"
+                    dedup_hit = not created
+                    product_id_out = product.id
+                    product_dict = CustomerProductResponse.model_validate(product).model_dump(mode='json')
 
             results.append(BatchMatchResultItem(
                 input=item,
