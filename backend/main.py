@@ -74,6 +74,11 @@ app.include_router(category_router, prefix="/api/product-categories", tags=["pro
 app.include_router(image_router, prefix="/api/images", tags=["images"])
 app.include_router(auth_router)
 app.include_router(customer_reply_router)
+# 订单导入相关路由（router已自带prefix：/orders, /products）
+# 必须先注册 /products/search，再注册 /products/{product_id}，否则 FastAPI 会把 "search" 当成 product_id
+app.include_router(order_import_router, prefix="/api")
+app.include_router(order_product_router, prefix="/api")
+
 app.include_router(customer_product_router)
 app.include_router(product_compat_router)
 app.include_router(setting_router)
@@ -81,10 +86,6 @@ app.include_router(memo_router)
 app.include_router(order_file_router)
 app.include_router(purchase_package_router)
 app.include_router(export_router)
-
-# 订单导入相关路由（router已自带prefix：/orders, /products）
-app.include_router(order_import_router, prefix="/api")
-app.include_router(order_product_router, prefix="/api")
 
 static_dir = os.path.join(base_dir, "static")
 if os.path.exists(static_dir):
