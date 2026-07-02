@@ -105,11 +105,20 @@ class SingleOrderDialog(QDialog):
         self.customer_combo.currentIndexChanged.connect(self.on_customer_changed)
         form_layout.addRow("客户:", self.customer_combo)
         
+        self.search_field_combo = QComboBox()
+        self.search_field_combo.addItem("OE号 + 名称", "both")
+        self.search_field_combo.addItem("仅OE号", "oe")
+        self.search_field_combo.addItem("仅名称", "name")
+        
         self.product_search_input = QLineEdit()
-        self.product_search_input.setPlaceholderText("输入OE号或产品名称搜索...")
+        self.product_search_input.setPlaceholderText("输入搜索关键词...")
         self.product_search_input.textChanged.connect(self.on_search_text_changed)
         self.product_search_input.returnPressed.connect(self.select_first_result)
-        form_layout.addRow("产品搜索:", self.product_search_input)
+        
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.search_field_combo)
+        search_layout.addWidget(self.product_search_input)
+        form_layout.addRow("产品搜索:", search_layout)
         
         self.search_results_list = QListWidget()
         self.search_results_list.setMaximumHeight(120)
@@ -227,8 +236,10 @@ class SingleOrderDialog(QDialog):
         if len(keyword) < 2:
             return
         
+        field = self.search_field_combo.currentData()
+        
         try:
-            response = self.api_client.get(f"/products/search?keyword={keyword}&limit=20")
+            response = self.api_client.get(f"/products/search?keyword={keyword}&limit=20&fields={field}")
             if response and isinstance(response, list):
                 self.search_results = response
                 self.update_search_results_list()

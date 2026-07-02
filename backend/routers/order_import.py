@@ -796,6 +796,7 @@ async def search_products(
     keyword: str = Query(..., min_length=1, max_length=100),
     limit: int = Query(20, ge=1, le=100),
     threshold: float = Query(0.3, ge=0, le=1),
+    fields: str = Query("both", description="搜索字段: oe(OE号), name(产品名称), both(两者)"),
     db: Session = Depends(get_db)
 ):
     """
@@ -806,15 +807,16 @@ async def search_products(
     """
     try:
         matcher = ProductMatcher(db)
+        all_matches = []
         
-        # 尝试OE号匹配
-        oe_matches = matcher._match_by_oe_number(keyword, limit=limit)
+        if fields in ("oe", "both"):
+            oe_matches = matcher._match_by_oe_number(keyword, limit=limit)
+            all_matches.extend(oe_matches)
         
-        # 尝试产品名称匹配
-        name_matches = matcher._match_by_product_name(keyword, limit=limit)
+        if fields in ("name", "both"):
+            name_matches = matcher._match_by_product_name(keyword, limit=limit)
+            all_matches.extend(name_matches)
         
-        # 合并结果
-        all_matches = oe_matches + name_matches
         all_matches = matcher._deduplicate_and_sort(all_matches)
         
         # 过滤低于阈值的匹配
