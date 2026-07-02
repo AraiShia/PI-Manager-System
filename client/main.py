@@ -3569,6 +3569,11 @@ class MainWindow(QMainWindow):
             self.order_detail_panel.formalRecordSaved.connect(
                 lambda: self.load_products(use_cache=False)
             )
+            # 2026-07-02：连接右键菜单信号
+            self.order_detail_panel.editProductRequested.connect(self._on_edit_product)
+            self.order_detail_panel.changeSupplierRequested.connect(self._on_change_supplier_from_menu)
+            self.order_detail_panel.purchaseSnapshotRequested.connect(self._on_purchase_snapshot)
+            self.order_detail_panel.openShopUrlRequested.connect(self._on_open_shop_url)
 
         # 兼容：初始化遗留属性
         self._order_summary_orders = []
@@ -3594,7 +3599,64 @@ class MainWindow(QMainWindow):
         """更新订单总表视图显示 - 委托给 OrderSummaryTab"""
         if hasattr(self, '_order_summary_tab') and self._order_summary_tab is not None:
             self._order_summary_tab.refresh_data()
-    
+
+    # ------------------------------------------------------------------
+    # 2026-07-02：订单产品右键菜单槽函数
+    # ------------------------------------------------------------------
+    def _on_edit_product(self, row, column):
+        """打开编辑订单产品 Dialog"""
+        if self.order_detail_panel:
+            self.order_detail_panel.open_edit_dialog(
+                row, focus_column=column if column >= 0 else None
+            )
+
+    def _on_change_supplier_from_menu(self, row):
+        """右键菜单：更换供应商"""
+        if not self.order_detail_panel:
+            return
+        item = self.order_detail_panel.get_item_at_row(row)
+        if not item:
+            return
+        from widgets.supplier_change_dialog import SupplierChangeDialog
+        dlg = SupplierChangeDialog(item, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            data = dlg.get_data()
+            try:
+                self.api_client.change_supplier(item["id"], data)
+                QMessageBox.information(self, "成功", "供应商已更换，采购单已重新生成")
+                self.order_detail_panel.show_order_detail(
+                    self.order_detail_panel._current_order,
+                    self.order_detail_panel._current_items,
+                )
+            except Exception as e:
+                QMessageBox.warning(self, "失败", str(e))
+
+    def _on_purchase_snapshot(self, row):
+        """右键菜单：采购快照"""
+        if not self.order_detail_panel:
+            return
+        item = self.order_detail_panel.get_item_at_row(row)
+        if not item:
+            return
+        from widgets.purchase_snapshot_dialog import PurchaseSnapshotDialog
+        dlg = PurchaseSnapshotDialog(item, parent=self)
+        dlg.exec()
+
+    def _on_open_shop_url(self, row):
+        """右键菜单：访问店铺网站"""
+        if not self.order_detail_panel:
+            return
+        item = self.order_detail_panel.get_item_at_row(row)
+        if not item:
+            return
+        url = item.get("shop_url", "")
+        if not url:
+            QMessageBox.information(self, "提示", "店铺链接为空")
+            return
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl(url))
+
     def _on_shipment_from_order_summary(self):
         """订单总表模式一：出货按钮点击处理 - 跳转到出货Tab"""
         # 跳转到出货Tab
