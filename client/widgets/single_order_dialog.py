@@ -133,6 +133,10 @@ class SingleOrderDialog(QDialog):
         self.customer_code_input = QLineEdit()
         self.customer_code_input.setPlaceholderText("客户产品编号")
         form_layout.addRow("客户产品编号:", self.customer_code_input)
+
+        self.model_input = QLineEdit()
+        self.model_input.setPlaceholderText("Model / 客户型号")
+        form_layout.addRow("Model:", self.model_input)
         
         self.oe_number_input = QLineEdit()
         self.oe_number_input.setPlaceholderText("OE号")
@@ -275,10 +279,13 @@ class SingleOrderDialog(QDialog):
             f"{product.get('oe_number', '')} - {product.get('detail_desc', '')}"
         )
         self.selected_product_label.setStyleSheet("color: #10b981; font-weight: bold;")
-        
-        self.oe_number_input.setText(product.get('oe_number', ''))
-        self.customer_code_input.setText(product.get('customer_code', ''))
-        
+
+        # 搜索结果中的 oe_number 实际上是 customer_model
+        model_value = product.get('oe_number', '')
+        self.model_input.setText(model_value)
+        self.customer_code_input.setText(product.get('customer_code', '') or model_value)
+        self.oe_number_input.setText('')
+
         if product.get('unit_price'):
             self.unit_price_spin.setValue(float(product.get('unit_price')))
         elif product.get('price_usd'):
@@ -298,13 +305,18 @@ class SingleOrderDialog(QDialog):
             return
 
         customer_id = self.customer_combo.currentData()
-        product_id = self.selected_product.get('id') if self.selected_product else None
+        product_id = None
+        if self.selected_product:
+            product_id = self.selected_product.get('product_id') or self.selected_product.get('product', {}).get('id')
+
+        customer_code = self.customer_code_input.text().strip() or self.model_input.text().strip()
 
         product_data = {
             'customer_id': customer_id,
             'product_id': product_id,
-            'customer_code': self.customer_code_input.text(),
-            'oe_number': self.oe_number_input.text(),
+            'customer_code': customer_code,
+            'customer_model': self.model_input.text().strip(),
+            'oe_number': self.oe_number_input.text().strip(),
             'quantity': self.quantity_spin.value(),
             'unit_price': float(self.unit_price_spin.value()),
         }

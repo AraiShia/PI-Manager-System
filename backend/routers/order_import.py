@@ -1039,6 +1039,7 @@ class SingleOrderCreate(BaseModel):
     customer_id: int
     product_id: Optional[int] = None
     customer_code: Optional[str] = None
+    customer_model: Optional[str] = None
     oe_number: Optional[str] = None
     detail_desc: Optional[str] = None
     quantity: int = 1
@@ -1080,7 +1081,19 @@ async def create_single_order(
         pi_no = NumberGenerator.generate_pi_no(db, dept_id, customer.customer_code)
         
         total_amount = order_data.quantity * order_data.unit_price
-        
+
+        # 如果没有直接传入 product_id，尝试按 Model（客户型号）匹配客户产品
+        product_id = order_data.product_id
+        customer_model = (order_data.customer_model or order_data.customer_code or "").strip()
+        if not product_id and customer_model:
+            from models.customer_product import PrdCustomerProduct
+            cp = db.query(PrdCustomerProduct).filter(
+                PrdCustomerProduct.customer_id == order_data.customer_id,
+                PrdCustomerProduct.customer_model == customer_model
+            ).first()
+            if cp:
+                product_id = cp.id
+
         pi = PiProformaInvoice(
             pi_no=pi_no,
             customer_id=order_data.customer_id,
@@ -1091,12 +1104,13 @@ async def create_single_order(
         )
         db.add(pi)
         db.flush()
-        
+
         item = PiProformaInvoiceItem(
             pi_id=pi.id,
-            product_id=order_data.product_id,
+            product_id=product_id,
             oe_number=order_data.oe_number,
             customer_code=order_data.customer_code,
+            customer_model=customer_model or order_data.customer_code,
             detail_desc=order_data.detail_desc,
             quantity=order_data.quantity,
             unit_price=order_data.unit_price,
