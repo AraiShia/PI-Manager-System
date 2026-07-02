@@ -318,6 +318,21 @@ async def import_orders(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _safe_str(value) -> str:
+    """🔧 2026-07-02 安全转换为字符串。
+
+    兼容 Excel 中可能出现的 None / int / float / datetime 等非字符串类型。
+    当 value 为 None 或空时返回 None，否则安全转换为去除两端空白的字符串。
+    """
+    if value is None:
+        return None
+    try:
+        s = str(value).strip()
+        return s if s else None
+    except Exception:
+        return None
+
+
 def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0) -> tuple[dict, list]:
     """将Excel行数据转换为订单数据（基于表头动态映射）
 
@@ -351,23 +366,27 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
 
         field_name = header_mapping[col_idx]
 
-        # === A组: 基础信息 (Col 0-9) ===
+        # 🔧 2026-07-02 安全类型转换：value 可能不是 str，
+        # 例如 Excel 中某些列是 int/float 数字。直接调用 .strip() 会报
+        # 'int has no attribute strip' 错误。
+        _val = _safe_str(value) if value is not None else None
+
         if field_name == 'order_date':
             data['order_date'] = _parse_date(value)
         elif field_name == 'pi_no':
-            data['pi_no'] = value.strip() if value else None
+            data['pi_no'] = _val
         elif field_name == 'customer_code':
-            data['customer_code'] = value.strip() if value else None
+            data['customer_code'] = _val
         elif field_name == 'oe_number':
-            data['oe_number'] = value.strip() if value else None
+            data['oe_number'] = _val
         elif field_name == 'remark' or field_name == 'remarks':
-            data['remark'] = value.strip() if value else None
+            data['remark'] = _val
         elif field_name == 'product_desc' or field_name == 'detail_desc':
-            data['detail_desc'] = value.strip() if value else None
+            data['detail_desc'] = _val
         elif field_name == 'customer_code':
-            data['customer_code'] = value.strip() if value else None
+            data['customer_code'] = _val
         elif field_name == 'product_feature':
-            data['product_feature'] = value.strip() if value else None
+            data['product_feature'] = _val
         elif field_name == 'qty' or field_name == 'quantity':
             qty = _parse_int(value) if value not in (None, "", 0) else None
             if qty is not None and qty <= 0:
@@ -392,9 +411,9 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
 
         # === C组: 供应商与采购 (Col 21-26) ===
         elif field_name == 'supplier_name':
-            data['supplier_name'] = value.strip() if value else None
+            data['supplier_name'] = _val
         elif field_name == 'shop_url':
-            data['shop_url'] = value.strip() if value else None
+            data['shop_url'] = _val
         elif field_name == 'delivery_date':
             data['delivery_date'] = _parse_date(value)
         elif field_name == 'supplier_id':
@@ -404,9 +423,9 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
             except (ValueError, TypeError):
                 pass
         elif field_name == 'factory_code':
-            data['factory_code'] = value.strip() if value else None
+            data['factory_code'] = _val
         elif field_name == 'storage_status':
-            data['storage_status'] = value.strip() if value else None
+            data['storage_status'] = _val
         elif field_name == 'stocked_qty':
             data['stocked_qty'] = _parse_decimal(value) if value else None
         elif field_name == 'factory_deposit':
@@ -416,13 +435,13 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
 
         # === D/E组: 包装与采购选项 (Col 29-30, 33-35, 37) ===
         elif field_name == 'packaging' or field_name == 'package_method':
-            data['packaging'] = value.strip() if value else None
+            data['packaging'] = _val
         elif field_name == 'purchase_option_name' or field_name == 'purchase_option':
-            data['purchase_option_name'] = value.strip() if value else None
+            data['purchase_option_name'] = _val
         elif field_name == 'product_detail':
-            data['product_detail'] = value.strip() if value else None
+            data['product_detail'] = _val
         elif field_name == 'carton_size':
-            data['carton_size'] = value.strip() if value else None
+            data['carton_size'] = _val
         elif field_name == 'carton_size_length':
             data['carton_length_cm'] = _parse_decimal(value) if value else None
         elif field_name == 'carton_size_width':
@@ -430,7 +449,7 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
         elif field_name == 'carton_size_height':
             data['carton_height_cm'] = _parse_decimal(value) if value else None
         elif field_name == 'pack_spec' or field_name == 'package_quantity':
-            data['pack_spec'] = value.strip() if value else None
+            data['pack_spec'] = _val
         elif field_name == 'carton_count':
             try:
                 data['carton_count'] = int(float(str(value).strip())) if value else None
@@ -441,13 +460,13 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
 
         # === F组: 其他属性 (Col 39-40) ===
         elif field_name == 'brand':
-            data['brand'] = value.strip() if value else None
+            data['brand'] = _val
         elif field_name == 'invoice_status':
-            data['invoice_status'] = value.strip() if value else None
+            data['invoice_status'] = _val
 
         # 兼容旧字段名 ===
         elif field_name == 'model':
-            data['model'] = value.strip() if value else None
+            data['model'] = _val
 
     # 🔧 2026-06-29 修正：MODEL 列值写入 customer_code（客户产品编号），而非 customer_model
     # customer_code 为空时自动生成临时编号 TP+YYMMDD+随机2位
