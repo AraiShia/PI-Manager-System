@@ -383,12 +383,10 @@ def _transform_row_data(row: List[str], header_mapping: dict, row_index: int = 0
             data['remark'] = _val
         elif field_name == 'product_desc' or field_name == 'detail_desc':
             data['detail_desc'] = _val
-        elif field_name == 'customer_code':
-            data['customer_code'] = _val
         elif field_name == 'product_feature':
             data['product_feature'] = _val
         elif field_name == 'qty' or field_name == 'quantity':
-            qty = _parse_int(value) if value not in (None, "", 0) else None
+            qty = _parse_int(_val) if _val else None
             if qty is not None and qty <= 0:
                 errors.append(f"QTY 必须大于0: {value}")
             data['quantity'] = qty
