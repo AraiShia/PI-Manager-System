@@ -640,7 +640,7 @@ class OrderImportDialog(QDialog):
                 existing_keys.add(f"model:{model}")
 
         # 客户-产品表已有 Model
-        for model in (self._db_existing_models or {}).keys():
+        for model in list((self._db_existing_models or {}).keys()):
             model = _normalize(model)
             if model:
                 existing_keys.add(f"model:{model}")
