@@ -244,11 +244,19 @@ class SingleOrderDialog(QDialog):
         
         try:
             response = self.api_client.get(f"/products/search?keyword={keyword}&limit=20&fields={field}")
-            if response and isinstance(response, list):
-                self.search_results = response
+            if not response:
+                return
+
+            if isinstance(response, dict):
+                results = response.get("data") or response.get("results") or []
+            else:
+                results = response
+
+            if isinstance(results, list):
+                self.search_results = results
                 self.update_search_results_list()
         except Exception as e:
-            pass
+            print(f"[单条新增] 搜索失败: {e}")
     
     def update_search_results_list(self):
         """更新搜索结果列表"""
