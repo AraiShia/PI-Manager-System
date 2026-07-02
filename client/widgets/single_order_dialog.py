@@ -9,8 +9,7 @@ from typing import List, Dict, Optional
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QPushButton, 
     QLabel, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QMessageBox, QDateEdit, QListWidget, QListWidgetItem,
-    QWidget, QAbstractItemView
+    QMessageBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QDate, QThread
 from PySide6.QtGui import QFont
@@ -117,11 +116,10 @@ class SingleOrderDialog(QDialog):
         search_layout.addWidget(self.product_search_input)
         form_layout.addRow("产品搜索:", search_layout)
         
-        self.search_results_list = QListWidget()
-        self.search_results_list.setMaximumHeight(120)
-        self.search_results_list.setAlternatingRowColors(True)
-        self.search_results_list.itemClicked.connect(self.on_result_selected)
-        form_layout.addRow("", self.search_results_list)
+        self.search_results_combo = QComboBox()
+        self.search_results_combo.setPlaceholderText("请选择搜索到的产品")
+        self.search_results_combo.currentIndexChanged.connect(self.on_result_selected)
+        form_layout.addRow("搜索结果:", self.search_results_combo)
         
         self.selected_product_label = QLabel("未选择产品")
         self.selected_product_label.setStyleSheet("color: #666; font-style: italic;")
@@ -228,17 +226,17 @@ class SingleOrderDialog(QDialog):
     def on_customer_changed(self, index):
         """客户选择变化时清空搜索"""
         self.product_search_input.clear()
-        self.search_results_list.clear()
+        self.search_results_combo.clear()
         self.selected_product = None
         self.selected_product_label.setText("未选择产品")
-    
+
     def on_search_text_changed(self, text):
         """搜索文本变化时延迟搜索（防抖）"""
         self.search_timer.stop()
         if len(text) >= 2:
             self.search_timer.start(300)
         else:
-            self.search_results_list.clear()
+            self.search_results_combo.clear()
     
     def perform_search(self):
         """执行产品搜索"""
@@ -278,25 +276,26 @@ class SingleOrderDialog(QDialog):
         return oe or name or "未命名产品"
 
     def update_search_results_list(self):
-        """更新搜索结果列表"""
-        self.search_results_list.clear()
+        """更新搜索结果下拉框"""
+        self.search_results_combo.blockSignals(True)
+        self.search_results_combo.clear()
         for product in self.search_results:
-            item = QListWidgetItem(self._product_display_text(product))
-            item.setData(Qt.ItemDataRole.UserRole, product)
-            self.search_results_list.addItem(item)
+            self.search_results_combo.addItem(self._product_display_text(product), product)
+        self.search_results_combo.blockSignals(False)
+        if self.search_results_combo.count() > 0:
+            self.search_results_combo.showPopup()
 
     def select_first_result(self):
         """回车键选择第一个结果"""
-        if self.search_results_list.count() > 0:
-            self.search_results_list.setCurrentRow(0)
-            self.on_result_selected(self.search_results_list.currentItem())
+        if self.search_results_combo.count() > 0:
+            self.search_results_combo.setCurrentIndex(0)
 
-    def on_result_selected(self, item):
+    def on_result_selected(self, index: int):
         """选择搜索结果：回填到录入字段"""
-        if not item:
+        if index < 0:
             return
 
-        product = item.data(Qt.ItemDataRole.UserRole)
+        product = self.search_results_combo.itemData(index)
         if not product:
             return
 
