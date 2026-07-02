@@ -1208,6 +1208,55 @@ def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaIn
         db_item.purchase_option_name = update_data['purchase_option_name']
         print(f"[DEBUG] update_pi_item: 更新 purchase_option_name={update_data['purchase_option_name']}")
 
+    # ---- F组: 其他可编辑字段（编辑订单产品 Dialog / 表格内联） ----
+    if 'shipping_fee' in update_data and update_data['shipping_fee'] is not None:
+        db_item.shipping_fee = float(update_data['shipping_fee'])
+        print(f"[DEBUG] update_pi_item: 更新 shipping_fee={update_data['shipping_fee']}")
+    if 'misc_fee' in update_data and update_data['misc_fee'] is not None:
+        db_item.misc_fee = float(update_data['misc_fee'])
+        print(f"[DEBUG] update_pi_item: 更新 misc_fee={update_data['misc_fee']}")
+    if 'delivery_date' in update_data:
+        from datetime import datetime
+        val = update_data['delivery_date']
+        if val:
+            if isinstance(val, str):
+                db_item.delivery_date = datetime.strptime(val[:10], "%Y-%m-%d")
+            else:
+                db_item.delivery_date = val
+        else:
+            db_item.delivery_date = None
+        print(f"[DEBUG] update_pi_item: 更新 delivery_date={db_item.delivery_date}")
+    if 'product_name' in update_data:
+        db_item.product_name = update_data['product_name']
+        print(f"[DEBUG] update_pi_item: 更新 product_name={update_data['product_name']}")
+    if 'image_url' in update_data:
+        db_item.image_url = update_data['image_url']
+        print(f"[DEBUG] update_pi_item: 更新 image_url={update_data['image_url']}")
+    if 'default_image_url' in update_data:
+        db_item.image_url = update_data['default_image_url']
+        print(f"[DEBUG] update_pi_item: 更新 image_url from default_image_url={update_data['default_image_url']}")
+    if 'brand' in update_data:
+        db_item.brand = update_data['brand']
+        print(f"[DEBUG] update_pi_item: 更新 brand={update_data['brand']}")
+    if 'supplier_name' in update_data:
+        db_item.supplier_name = update_data['supplier_name']
+        print(f"[DEBUG] update_pi_item: 更新 supplier_name={update_data['supplier_name']}")
+    if 'factory_short_name' in update_data:
+        db_item.supplier_name = update_data['factory_short_name']
+        print(f"[DEBUG] update_pi_item: 更新 supplier_name from factory_short_name={update_data['factory_short_name']}")
+    if 'shop_url' in update_data:
+        db_item.shop_url = update_data['shop_url']
+        print(f"[DEBUG] update_pi_item: 更新 shop_url={update_data['shop_url']}")
+    if 'line_1688_url' in update_data:
+        db_item.shop_url = update_data['line_1688_url']
+        print(f"[DEBUG] update_pi_item: 更新 shop_url from line_1688_url={update_data['line_1688_url']}")
+    if 'factory_code' in update_data:
+        db_item.factory_code = update_data['factory_code']
+        print(f"[DEBUG] update_pi_item: 更新 factory_code={update_data['factory_code']}")
+    if 'purchase_price' in update_data and update_data['purchase_price'] is not None:
+        db_item.purchase_price = float(update_data['purchase_price'])
+        print(f"[DEBUG] update_pi_item: 更新 purchase_price={update_data['purchase_price']}")
+
     # ---- 派生字段:total_price ----
     if db_item.quantity is not None and db_item.unit_price is not None:
         db_item.total_price = float(db_item.quantity) * float(db_item.unit_price)
