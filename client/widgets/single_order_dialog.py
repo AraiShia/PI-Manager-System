@@ -164,11 +164,15 @@ class SingleOrderDialog(QDialog):
         btn_layout.addStretch()
         
         cancel_btn = QPushButton("取消")
+        cancel_btn.setAutoDefault(False)
+        cancel_btn.setDefault(False)
         cancel_btn.clicked.connect(self.reject)
         cancel_btn.setStyleSheet("padding: 8px 16px;")
         btn_layout.addWidget(cancel_btn)
-        
+
         save_btn = QPushButton("保存")
+        save_btn.setAutoDefault(False)
+        save_btn.setDefault(False)
         save_btn.clicked.connect(self.save_order)
         save_btn.setStyleSheet("""
             QPushButton {
@@ -255,47 +259,67 @@ class SingleOrderDialog(QDialog):
         except Exception as e:
             print(f"[单条新增] 搜索失败: {e}")
     
+    def _product_display_text(self, product: dict) -> str:
+        """生成搜索结果展示文本"""
+        oe = product.get('oe_number', '') or product.get('oe', '')
+        name = (
+            product.get('product_name', '')
+            or product.get('detail_desc', '')
+            or product.get('name', '')
+            or product.get('customer_model', '')
+        )
+        if oe and name:
+            return f"{oe} - {name}"
+        return oe or name or "未命名产品"
+
     def update_search_results_list(self):
         """更新搜索结果列表"""
         self.search_results_list.clear()
         for product in self.search_results:
-            display_text = f"{product.get('oe_number', '')} - {product.get('detail_desc', '')}"
-            item = QListWidgetItem(display_text)
+            item = QListWidgetItem(self._product_display_text(product))
             item.setData(Qt.ItemDataRole.UserRole, product)
             self.search_results_list.addItem(item)
-    
+
     def select_first_result(self):
         """回车键选择第一个结果"""
         if self.search_results_list.count() > 0:
             self.search_results_list.setCurrentRow(0)
             self.on_result_selected(self.search_results_list.currentItem())
-    
+
     def on_result_selected(self, item):
-        """选择搜索结果"""
+        """选择搜索结果：回填到录入字段"""
         if not item:
             return
-        
+
         product = item.data(Qt.ItemDataRole.UserRole)
         if not product:
             return
-        
+
         self.selected_product = product
-        self.selected_product_label.setText(
-            f"{product.get('oe_number', '')} - {product.get('detail_desc', '')}"
-        )
+        display_text = self._product_display_text(product)
+        self.selected_product_label.setText(display_text)
         self.selected_product_label.setStyleSheet("color: #10b981; font-weight: bold;")
 
-        # 搜索结果中的 oe_number 实际上是 customer_model
-        model_value = product.get('oe_number', '')
-        self.model_input.setText(model_value)
-        self.customer_code_input.setText(product.get('customer_code', '') or model_value)
-        self.oe_number_input.setText('')
+        # 回填字段
+        self.customer_code_input.setText(
+            product.get('customer_code', '')
+            or product.get('customer_product_code', '')
+            or product.get('product_code', '')
+            or ''
+        )
+        self.model_input.setText(
+            product.get('customer_model', '')
+            or product.get('model', '')
+            or ''
+        )
+        self.oe_number_input.setText(
+            product.get('oe_number', '')
+            or product.get('oe', '')
+            or ''
+        )
+        price = product.get('unit_price') or product.get('price') or product.get('price_usd') or 0
+        self.unit_price_spin.setValue(float(price))
 
-        if product.get('unit_price'):
-            self.unit_price_spin.setValue(float(product.get('unit_price')))
-        elif product.get('price_usd'):
-            self.unit_price_spin.setValue(float(product.get('price_usd')))
-    
     def calculate_amount(self):
         """计算合计金额"""
         quantity = self.quantity_spin.value()

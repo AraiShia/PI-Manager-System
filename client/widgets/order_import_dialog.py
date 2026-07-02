@@ -220,6 +220,8 @@ class OrderImportDialog(QDialog):
         # 搜索不到客户时支持快速新增
         self.add_customer_btn = QPushButton("新增客户")
         self.add_customer_btn.setToolTip("未找到客户时快速创建新客户")
+        self.add_customer_btn.setAutoDefault(False)
+        self.add_customer_btn.setDefault(False)
         self.add_customer_btn.clicked.connect(self._on_add_customer_clicked)
         customer_layout.addWidget(self.add_customer_btn)
 
