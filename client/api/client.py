@@ -211,24 +211,27 @@ class ApiClient:
         return response.json()
 
     def upload_image(self, file_path: str, product_id: int = None) -> str:
-        """上传图片"""
+        """上传图片到 /api/images/upload"""
         import os
+        import mimetypes
         filename = os.path.basename(file_path)
+        mime_type, _ = mimetypes.guess_type(file_path)
+        mime_type = mime_type or "image/jpeg"
         with open(file_path, "rb") as f:
-            files = {"files": (filename, f, "image/jpeg")}
-            params = {}
-            if product_id:
-                params["product_id"] = product_id
+            # 后端 /api/images/upload 只接受字段名 "file"，不需要 product_id 查询参数
+            files = {"file": (filename, f, mime_type)}
             url = f"{self.base_url}/api/images/upload"
-            # 复制主session的headers到临时session
+            # 复制主session的headers到临时session，但排除 Content-Type，
+            # 否则 requests 不会自动设置 multipart/form-data 边界，导致后端解析为空 FormData
             temp_session = requests.Session()
-            temp_session.headers.update(self.session.headers)
-            response = temp_session.post(url, files=files, params=params, timeout=30)
+            for key, value in self.session.headers.items():
+                if key.lower() != "content-type":
+                    temp_session.headers[key] = value
+            response = temp_session.post(url, files=files, timeout=30)
             response.raise_for_status()
             result = response.json()
-            if result.get("files"):
-                return result["files"][0]
-        return None
+            return result.get("url")
+
 
     def set_product_default_image(self, product_id: int, image_url: str) -> Dict:
         """设置产品默认图片"""
@@ -291,6 +294,10 @@ class ApiClient:
     def get_customer_product_by_id(self, product_id: int) -> Optional[Dict]:
         """获取单个客户产品（含完整字段）"""
         return self.get(f"/customer-products/{product_id}")
+
+    def update_customer_product(self, product_id: int, data: Dict) -> Dict:
+        """更新客户产品（类目、图片等）"""
+        return self.put(f"/customer-products/{product_id}", data)
 
     def delete_product(self, product_id: int) -> Dict:
         """删除客户产品"""

@@ -2215,7 +2215,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(toolbar)
 
         self.products_table = QTableWidget()
-        self.products_table.setColumnCount(14)
+        self.products_table.setColumnCount(15)
         self.products_table.setHorizontalHeaderLabels([
             "", "客户产品编号", "系统编号", "OE号", "图片", "产品名称",
             "客户型号", "客户", "类别", "颜色", "品牌", "USD", "RMB", "规格", "操作"
@@ -2235,7 +2235,7 @@ class MainWindow(QMainWindow):
         self.products_table.setColumnWidth(11, 80)  # USD
         self.products_table.setColumnWidth(12, 80)  # RMB
         self.products_table.setColumnWidth(13, 150)  # 规格
-        self.products_table.setColumnHidden(14, True)  # ID 列隐藏
+        self.products_table.setColumnWidth(14, 70)  # 操作
         self.products_table.verticalHeader().setDefaultSectionSize(70)
         self.products_table.doubleClicked.connect(self.on_product_double_click)
         self.setup_table_context_menu(self.products_table, ["", "客户产品编号", "系统编号", "OE号", "图片", "产品名称", "客户型号", "客户", "类别", "颜色", "品牌", "USD", "RMB", "规格", "操作"])
@@ -3954,6 +3954,8 @@ class MainWindow(QMainWindow):
             detail = self.api_client.get_pi_detail(order_id)
             if detail:
                 self._show_order_detail(detail)
+                # 切换到订单总表 Tab，让用户看到详情
+                self.switch_tab("order_summary")
                 print(f"[INFO] 已打开新订单详情: PI_ID={order_id}")
             else:
                 print(f"[WARN] 无法获取新订单详情: PI_ID={order_id}")
@@ -4587,6 +4589,7 @@ class MainWindow(QMainWindow):
                 return lambda: self.edit_product(product)
 
             action_widget = QWidget()
+            action_widget.setProperty("product_id", product_id)
             action_layout = QHBoxLayout()
             action_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -4810,8 +4813,6 @@ class MainWindow(QMainWindow):
                 category_code = None
         
         try:
-            # 2026-06-14 修复：ID 列在 col 14（与 _populate_products_table 对齐）
-            self.products_table.setColumnHidden(14, True)
             print(f"搜索参数 - 关键词: '{keyword}', 类别代码: {category_code}")
             # 2026-06-14 改用 category_code 参数（前端下拉框存 code 字符串）
             products = self.api_client.search_products(keyword, category_code=category_code)
@@ -4956,11 +4957,9 @@ class MainWindow(QMainWindow):
                 display_spec = (specifications[:20] + '...') if len(specifications) > 20 else (specifications or '-')
                 self.products_table.setItem(row, 13, QTableWidgetItem(display_spec))
 
-                # 14: 隐藏的产品ID（与 _populate_products_table 一致）
-                self.products_table.setItem(row, 14, QTableWidgetItem(str(product_id)))
-
-                # 14: 编辑按钮（与 _populate_products_table 一致）
+                # 14: 操作区 - 编辑按钮（与 _populate_products_table 一致）
                 edit_btn = QPushButton("编辑")
+                edit_btn.setProperty("product_id", product_id)
                 edit_btn.setFixedWidth(50)
                 edit_btn.clicked.connect(lambda _, prod=p: self.edit_product(prod))
                 self.products_table.setCellWidget(row, 14, edit_btn)
@@ -5014,10 +5013,18 @@ class MainWindow(QMainWindow):
         for row in range(self.products_table.rowCount()):
             checkbox = self.products_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                # 从隐藏的第13列获取产品ID
-                id_item = self.products_table.item(row, 13)
-                if id_item:
-                    selected_ids.append(int(id_item.text()))
+                # 从第14列操作区获取产品ID
+                action_widget = self.products_table.cellWidget(row, 14)
+                product_id = None
+                if action_widget:
+                    product_id = action_widget.property("product_id")
+                if not product_id:
+                    # 兜底：从操作区按钮查找
+                    btn = self.products_table.cellWidget(row, 14)
+                    if isinstance(btn, QPushButton):
+                        product_id = btn.property("product_id")
+                if product_id:
+                    selected_ids.append(int(product_id))
         return selected_ids
 
     def batch_toggle_product_status(self):
@@ -6898,16 +6905,19 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass  # 系统编号查询失败，fallback 到 ID
 
-        # 方式2: fallback 通过产品ID获取（第14列隐藏ID）
+        # 方式2: fallback 通过产品ID获取（第14列操作区存储 product_id）
         if not product:
-            id_item = self.products_table.item(row, 14)
-            if id_item:
-                product_id = id_item.text().strip()
-                if product_id and product_id.lstrip('-').isdigit():
-                    try:
-                        product = self.api_client.get(f"/customer-products/{product_id}")
-                    except Exception:
-                        pass
+            action_widget = self.products_table.cellWidget(row, 14)
+            product_id = None
+            if action_widget:
+                product_id = action_widget.property("product_id")
+                if not product_id and isinstance(action_widget, QPushButton):
+                    product_id = action_widget.property("product_id")
+            if product_id:
+                try:
+                    product = self.api_client.get(f"/customer-products/{product_id}")
+                except Exception:
+                    pass
 
         if not product:
             QMessageBox.warning(self, "错误", "无法获取产品信息")

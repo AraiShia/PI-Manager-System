@@ -87,14 +87,15 @@ class PIInvoiceItemResponse(BaseModel):
     pack_spec: Optional[str] = None               # 装箱规格
     packing_spec: Optional[str] = None
     carton_size: Optional[str] = None
-    carton_count: Optional[int] = None            # "1件多箱"模式下=总箱数
-    # 🔧 2026-06-26 修复：与 pi_detail.py 中的修复一致
-    boxes_count: Optional[int] = None             # "1件多箱"模式下=每件箱数
+    carton_count: Optional[int] = None            # 多件/箱模式=总箱数；1件多箱模式=数量×每件箱数
+    units_per_carton: Optional[int] = None        # 每箱件数（多件/箱模式下使用）
+    cartons_per_unit: Optional[int] = None       # 每件箱数（1件多箱模式下使用）
     carton_gross_weight: Optional[float] = None
     total_weight: Optional[float] = None
     brand: Optional[str] = None
     image_url: Optional[str] = None
     customer_model: Optional[str] = None
+    color: Optional[str] = None                     # 产品颜色（与 product_feature 拼接显示）
     product_feature: Optional[str] = None
     factory_no: Optional[str] = None
     class Config:

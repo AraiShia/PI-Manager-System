@@ -113,7 +113,10 @@ class ProductMatcher:
                     'match_type': self.MATCH_TYPE_EXACT,
                     'match_score': self.SCORE_EXACT,
                     'detail_desc': cp.detail_desc,
+                    'product_name': cp.product_name,
                     'oe_number': cp.customer_model,
+                    'customer_model': cp.customer_model,
+                    'customer_product_code': cp.customer_product_code,
                     'brand': cp.brand,
                     'product': cp,
                 }]
@@ -129,18 +132,21 @@ class ProductMatcher:
         return []
 
     def _match_by_oe_number(self, oe_number: str, limit: int = 5) -> List[dict]:
-        """优先级2：通过 OE号 模糊匹配（PrdCustomerProduct.customer_model + PrdCustomerProductOE）"""
+        """优先级2：通过 OE号/客户产品编号/系统编号 模糊匹配"""
         logger.debug("[_match_by_oe_number] oe=%s, limit=%s", oe_number, limit)
         try:
-            # 直接在 prd_customer_product.customer_model 匹配
+            keyword = oe_number
+            # 同时匹配 customer_model、customer_product_code、system_code
             cps = self.db.query(PrdCustomerProduct).filter(
-                PrdCustomerProduct.customer_model.ilike(f"%{oe_number}%")
+                (PrdCustomerProduct.customer_model.ilike(f"%{keyword}%")) |
+                (PrdCustomerProduct.customer_product_code.ilike(f"%{keyword}%")) |
+                (PrdCustomerProduct.system_code.ilike(f"%{keyword}%"))
             ).limit(limit).all()
-            logger.debug("[_match_by_oe_number] customer_model 模糊命中 %d 条", len(cps))
+            logger.debug("[_match_by_oe_number] customer_model/code/system 模糊命中 %d 条", len(cps))
 
             # 同时查 prd_customer_product_oe 关系表
             oe_results = self.db.query(PrdCustomerProductOE).filter(
-                PrdCustomerProductOE.oe_number.ilike(f"%{oe_number}%")
+                PrdCustomerProductOE.oe_number.ilike(f"%{keyword}%")
             ).limit(limit).all()
             logger.debug("[_match_by_oe_number] customer_product_oe 命中 %d 条", len(oe_results))
 
@@ -150,12 +156,21 @@ class ProductMatcher:
             for cp in cps:
                 if cp.id not in product_ids:
                     product_ids.add(cp.id)
+                    # 匹配得分：优先按 customer_model 计算，其次 customer_product_code
+                    score = self._calculate_oe_score(cp.customer_model, keyword)
+                    if score == self.SCORE_OE and cp.customer_product_code and keyword.upper() in cp.customer_product_code.upper():
+                        score = self._calculate_oe_score(cp.customer_product_code, keyword)
+                    if score == self.SCORE_OE and cp.system_code and keyword.upper() in cp.system_code.upper():
+                        score = self._calculate_oe_score(cp.system_code, keyword)
                     matches.append({
                         'product_id': cp.id,
                         'match_type': self.MATCH_TYPE_OE,
-                        'match_score': self._calculate_oe_score(cp.customer_model, oe_number),
+                        'match_score': score,
                         'detail_desc': cp.detail_desc,
+                        'product_name': cp.product_name,
                         'oe_number': cp.customer_model,
+                        'customer_model': cp.customer_model,
+                        'customer_product_code': cp.customer_product_code,
                         'brand': cp.brand,
                         'product': cp,
                     })
@@ -170,9 +185,12 @@ class ProductMatcher:
                         matches.append({
                             'product_id': cp.id,
                             'match_type': self.MATCH_TYPE_OE,
-                            'match_score': self._calculate_oe_score(oe.oe_number, oe_number),
+                            'match_score': self._calculate_oe_score(oe.oe_number, keyword),
                             'detail_desc': cp.detail_desc,
+                            'product_name': cp.product_name,
                             'oe_number': cp.customer_model,
+                            'customer_model': cp.customer_model,
+                            'customer_product_code': cp.customer_product_code,
                             'brand': cp.brand,
                             'product': cp,
                         })
@@ -184,14 +202,17 @@ class ProductMatcher:
             return []
 
     def _match_by_product_name(self, product_name: str, limit: int = 5) -> List[dict]:
-        """优先级3：通过产品名称模糊匹配（prd_customer_product.detail_desc）"""
+        """优先级3：通过产品名称/描述/品牌模糊匹配"""
         logger.debug("[_match_by_product_name] name=%s, limit=%s", product_name, limit)
         try:
+            keyword = product_name
             # SQLite 不支持 similarity()，退化为 LIKE 匹配
             cps = self.db.query(PrdCustomerProduct).filter(
-                PrdCustomerProduct.detail_desc.ilike(f"%{product_name}%")
+                (PrdCustomerProduct.product_name.ilike(f"%{keyword}%")) |
+                (PrdCustomerProduct.detail_desc.ilike(f"%{keyword}%")) |
+                (PrdCustomerProduct.brand.ilike(f"%{keyword}%"))
             ).limit(limit).all()
-            logger.debug("[_match_by_product_name] detail_desc 命中 %d 条", len(cps))
+            logger.debug("[_match_by_product_name] name/desc/brand 命中 %d 条", len(cps))
 
             matches = []
             for cp in cps:
@@ -202,7 +223,10 @@ class ProductMatcher:
                     'match_type': self.MATCH_TYPE_NAME,
                     'match_score': score,
                     'detail_desc': cp.detail_desc,
+                    'product_name': cp.product_name,
                     'oe_number': cp.customer_model,
+                    'customer_model': cp.customer_model,
+                    'customer_product_code': cp.customer_product_code,
                     'brand': cp.brand,
                     'product': cp,
                 })

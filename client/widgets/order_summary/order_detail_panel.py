@@ -38,7 +38,7 @@ panel.cellDoubleClicked.connect(main_window._on_order_detail_double_click)
 from PySide6.QtWidgets import (
     QWidget, QTableWidget, QTableWidgetItem, QLabel, QPushButton,
     QHeaderView, QAbstractItemView, QGroupBox, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QCheckBox, QMenu, QDialog
+    QMessageBox, QCheckBox, QMenu, QDialog, QScrollArea
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QColor, QBrush, QFont, QPixmap, QImage, QAction
@@ -117,6 +117,8 @@ class OrderDetailPanel(QWidget):
         # 图片缓存
         self._image_cache = {}
         self._image_cache_lock = threading.Lock()
+        # 列筛选状态
+        self._hidden_columns: set = set()
         self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="order_detail_img")
         self._init_ui()
 
@@ -242,7 +244,7 @@ class OrderDetailPanel(QWidget):
             }
             QPushButton:hover { background-color: #f3f4f6; }
         """)
-        self._col_filter_btn.clicked.connect(self._show_column_filter_menu)
+        self._col_filter_btn.clicked.connect(self._show_column_filter)
         header_layout.addWidget(self._col_filter_btn)
         
         # 采购按钮（2026-06-11 任务 4：文案改"采购全部"）
@@ -307,9 +309,172 @@ class OrderDetailPanel(QWidget):
         self._formal_btn.setEnabled(False)
         self._formal_btn.setToolTip("请先点击此按钮保存正式纪录，锁定PI后再进行采购/入库操作")
         header_layout.addWidget(self._formal_btn)
-        
+
+        header_layout.addSpacing(8)
+
         return header
-    
+
+    class _ColumnFilterPanel(QWidget):
+        """悬浮面板：列筛选多选+确定/取消，嵌入父窗口不弹窗"""
+        # 强制显示且不可隐藏的列
+        LOCKED_COLUMNS = {0, 2, 5, 6, 9, 10, 11, 17, 18, 19, 20, 21, 36, 40}
+
+        def __init__(self, headers: List[str], hidden_cols: set, parent=None):
+            super().__init__(parent)
+            self._headers = headers
+            self._checkboxes: List[QCheckBox] = []
+            self._cb_cols: List[int] = []
+            self._pending_hidden: set = set(hidden_cols) - self.LOCKED_COLUMNS
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+            self.setStyleSheet("""
+                QWidget {
+                    background: white;
+                    border: 1px solid #d1d5db;
+                    border-radius: 8px;
+                }
+                QCheckBox {
+                    spacing: 8px;
+                    font-size: 14px;
+                }
+                QCheckBox::indicator {
+                    width: 20px;
+                    height: 20px;
+                    border: 1px solid #d1d5db;
+                    border-radius: 4px;
+                    background: white;
+                }
+                QCheckBox::indicator:checked {
+                    background: #3b82f6;
+                    border: 1px solid #3b82f6;
+                }
+                QPushButton {
+                    border-radius: 4px;
+                    padding: 6px 18px;
+                    font-size: 14px;
+                }
+            """)
+
+            main_layout = QVBoxLayout(self)
+            main_layout.setContentsMargins(10, 10, 10, 10)
+            main_layout.setSpacing(6)
+
+            # 标题栏
+            title_layout = QHBoxLayout()
+            title_layout.addWidget(QLabel("<b style='font-size:15px'>选择显示列</b>"))
+            title_layout.addStretch()
+            close_btn = QPushButton("×")
+            close_btn.setFixedSize(20, 20)
+            close_btn.setStyleSheet("border: none; font-size: 16px; color: #9ca3af;")
+            close_btn.clicked.connect(self.hide)
+            title_layout.addWidget(close_btn)
+            main_layout.addLayout(title_layout)
+
+            # 复选框列表（可滚动）：锁定列显示为灰色静态文字，非锁定列显示复选框
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+            scroll.setMinimumHeight(500)
+            container = QWidget()
+            container_layout = QVBoxLayout(container)
+            container_layout.setContentsMargins(6, 6, 6, 6)
+            container_layout.setSpacing(6)
+            for i, header in enumerate(headers):
+                if i in self.LOCKED_COLUMNS:
+                    # 锁定列显示为灰色静态标签，前缀 🔒
+                    label = QLabel(f"🔒 {header}")
+                    label.setStyleSheet("color: #9ca3af; font-size: 14px; padding-left: 4px;")
+                    container_layout.addWidget(label)
+                else:
+                    cb = QCheckBox(header)
+                    cb.setChecked(i not in hidden_cols)
+                    cb.stateChanged.connect(self._on_check_changed)
+                    container_layout.addWidget(cb)
+                    self._checkboxes.append(cb)
+                    self._cb_cols.append(i)
+            container_layout.addStretch()
+            scroll.setWidget(container)
+            main_layout.addWidget(scroll)
+
+            # 按钮行
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
+            cancel_btn = QPushButton("取消")
+            cancel_btn.setStyleSheet("border: 1px solid #d1d5db; padding: 5px 14px;")
+            cancel_btn.clicked.connect(self._on_cancel)
+            ok_btn = QPushButton("确定")
+            ok_btn.setStyleSheet("background-color: #3b82f6; color: white; border: none; padding: 5px 14px;")
+            ok_btn.clicked.connect(self._on_ok)
+            btn_layout.addWidget(cancel_btn)
+            btn_layout.addWidget(ok_btn)
+            main_layout.addLayout(btn_layout)
+
+        def _on_check_changed(self):
+            """记录待应用的隐藏列（不立即生效）"""
+            pending = set()
+            for idx, cb in enumerate(self._checkboxes):
+                if not cb.isChecked():
+                    pending.add(self._cb_cols[idx])
+            self._pending_hidden = pending
+
+        def _on_cancel(self):
+            """取消：恢复勾选状态为当前已应用的隐藏列"""
+            hidden = getattr(self.parent(), "_hidden_columns", set()) if self.parent() else set()
+            for idx, cb in enumerate(self._checkboxes):
+                cb.blockSignals(True)
+                cb.setChecked(self._cb_cols[idx] not in hidden)
+                cb.blockSignals(False)
+            self.hide()
+
+        def _on_ok(self):
+            """确定：应用隐藏列"""
+            panel = self.parent()
+            if panel and hasattr(panel, "_hidden_columns"):
+                panel._hidden_columns = self._pending_hidden
+                panel._apply_column_visibility()
+            self.hide()
+
+        def popup(self, anchor: QWidget):
+            """显示在 anchor 下方，超出屏幕自动反弹"""
+            pos = anchor.mapToGlobal(anchor.rect().bottomLeft())
+            self.move(pos)
+            # 超出右/下边界则调整位置
+            try:
+                screen = anchor.windowHandle().screen()
+                if screen:
+                    geo = screen.availableGeometry()
+                    if self.x() + self.width() > geo.right():
+                        self.move(geo.right() - self.width(), self.y())
+                    if self.y() + self.height() > geo.bottom():
+                        self.move(self.x(), anchor.mapToGlobal(anchor.rect().topLeft()).y() - self.height())
+            except Exception:
+                pass
+            self.show()
+            self.raise_()
+
+    def _show_column_filter(self):
+        """显示列筛选面板"""
+        panel = getattr(self, "_filter_panel", None)
+        if panel is None:
+            hidden = getattr(self, "_hidden_columns", set())
+            self._filter_panel = self._ColumnFilterPanel(ORDER_DETAIL_HEADERS, hidden, self)
+            panel = self._filter_panel
+        else:
+            # 更新复选框状态为当前已应用的隐藏列
+            hidden = getattr(self, "_hidden_columns", set())
+            for idx, cb in enumerate(panel._checkboxes):
+                cb.blockSignals(True)
+                cb.setChecked(panel._cb_cols[idx] not in hidden)
+                cb.blockSignals(False)
+        panel.popup(self._col_filter_btn)
+
+    def _apply_column_visibility(self):
+        """根据 _hidden_columns 显示/隐藏列，锁定列永久可见"""
+        LOCKED = {0, 2, 5, 6, 9, 10, 11, 17, 18, 19, 20, 21, 36, 40}
+        hidden = getattr(self, "_hidden_columns", set()) - LOCKED
+        for col in range(ORDER_DETAIL_COLUMN_COUNT):
+            self._table.setColumnHidden(col, col in hidden)
+
     def _create_table(self) -> QTableWidget:
         """创建订单详情表格（41列）"""
         table = QTableWidget()
@@ -405,6 +570,15 @@ class OrderDetailPanel(QWidget):
         item = self.get_item_at_row(row)
         if not item:
             return
+        # 重新从后端拉取最新数据，避免使用表格中可能过时的 item 数据
+        item_id = item.get("id")
+        if item_id and self.api_client:
+            try:
+                fresh_items = self.api_client.get_pi_items(item_id)
+                if fresh_items and len(fresh_items) > 0:
+                    item = fresh_items[0]
+            except Exception as e:
+                print(f"[WARN] open_edit_dialog: 拉取最新产品数据失败，使用表格数据: {e}")
         from widgets.product_item_edit_dialog import ProductItemEditDialog
         dlg = ProductItemEditDialog(
             item=item,
@@ -412,17 +586,37 @@ class OrderDetailPanel(QWidget):
             focus_column=focus_column,
             has_formal=self._has_formal_record,
             is_purchased=self._is_item_purchased(item),
+            customer_code=self._current_order.get("customer_code") if self._current_order else None,
             parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            # Dialog 已内部调用 api_client.update_pi_item，刷新表格即可
-            self.show_order_detail(self._current_order, self._current_items)
+            # Dialog 已内部调用 api_client.update_pi_item，重新拉取详情后刷新表格
+            self._refresh_current_order_detail()
     
     def get_table(self) -> QTableWidget:
         """获取表格组件"""
         return self._table
-    
-    def clear_table(self):
+
+    def _refresh_current_order_detail(self):
+        """从后端重新获取当前订单详情并刷新表格"""
+        if not self._current_order:
+            return
+        order_id = self._current_order.get('id') or self._current_order.get('pi_id')
+        if not order_id or not self.api_client:
+            self.show_order_detail(self._current_order, self._current_items)
+            return
+        try:
+            detail = self.api_client.get_pi_detail(order_id)
+            if detail:
+                items = detail.get('items') or []
+                self.show_order_detail(detail, items)
+            else:
+                self.show_order_detail(self._current_order, self._current_items)
+        except Exception as e:
+            print(f"[订单详情] 刷新失败: {e}")
+            self.show_order_detail(self._current_order, self._current_items)
+
+    def clear(self):
         """清空表格"""
         self._table.setRowCount(0)
         self._table.setSortingEnabled(False)
@@ -455,7 +649,7 @@ class OrderDetailPanel(QWidget):
         self._title_label.setText(f"ORDER NO.: {order_no}")
 
         # 清空并重新填充
-        self.clear_table()
+        self.clear()
 
         currency = order.get('currency', 'USD')
 
@@ -760,9 +954,10 @@ class OrderDetailPanel(QWidget):
             qty = num(it, 'quantity', 0)
             packaging = g(it, 'packaging') or g(it, 'packing_type')
 
-            # 2026-06-26 修复：1件多箱模式，总箱数 = 数量 × 每件箱数
+            # 2026-07-03 修复：1件多箱模式，每件箱数从 cartons_per_unit / boxes_count 读取，
+            # 总箱数 = 数量 × 每件箱数；carton_count 在后端已表示总箱数，不再作为每件箱数。
             if packaging == '1件多箱':
-                boxes_per_piece = num(it, 'carton_count', 0) or num(it, 'box_count', 0)
+                boxes_per_piece = num(it, 'cartons_per_unit', 0) or num(it, 'boxes_count', 0)
                 if not boxes_per_piece:
                     pack_spec = (
                         g(it, 'pack_spec')
@@ -912,8 +1107,14 @@ class OrderDetailPanel(QWidget):
         # ===== Col 7: 客户型号 =====
         setc(7, g(item, 'customer_model') or g(item, 'cust_model') or g(item, 'oe_number'))
 
-        # ===== Col 8: 产品特性 =====
-        setc(8, g(item, 'product_features') or g(item, 'product_feature'))
+        # ===== Col 8: 产品特性（拼接颜色 + 产品特性） =====
+        color = g(item, 'color')
+        feature = g(item, 'product_features') or g(item, 'product_feature')
+        if color and feature:
+            product_feature_display = f"{color} {feature}"
+        else:
+            product_feature_display = color or feature
+        setc(8, product_feature_display)
 
         # ===== Col 9: 数量 =====
         setc(9, int(num(item, 'quantity', 0)), align=Qt.AlignRight | Qt.AlignVCenter)
@@ -1045,7 +1246,7 @@ class OrderDetailPanel(QWidget):
         setc(30, purchase_value)
 
         # ===== Col 31: 产品细节 =====
-        setc(31, g(item, 'product_details') or g(item, 'product_spec'))
+        setc(31, g(item, 'product_detail') or g(item, 'product_details') or g(item, 'product_spec'))
 
         # ===== Col 32: 工厂编号 =====
         setc(32, g(item, 'factory_code') or g(item, 'factory_sku') or g(item, 'factory_model'))
@@ -1593,40 +1794,6 @@ class OrderDetailPanel(QWidget):
                 self._formal_btn.setText("📌 保存正式纪录")
                 self._formal_btn.setToolTip("保存失败，请重试")
             QMessageBox.warning(self, "错误", f"保存失败: {e}")
-
-    def _show_column_filter_menu(self):
-        """显示列筛选菜单"""
-        menu = QMenu(self._col_filter_btn)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                padding: 4px;
-            }
-            QMenu::item {
-                padding: 6px 24px;
-            }
-            QMenu::item:selected {
-                background-color: #f3f4f6;
-            }
-        """)
-
-        # 创建所有列的复选框
-        for col in range(self._table.columnCount()):
-            header_text = self._table.horizontalHeaderItem(col).text() if self._table.horizontalHeaderItem(col) else f"列{col}"
-            action = menu.addAction(header_text)
-            action.setCheckable(True)
-            action.setChecked(not self._table.isColumnHidden(col))
-            action.triggered.connect(
-                lambda checked, c=col: self._toggle_column(c, checked)
-            )
-
-        # 显示菜单在按钮下方
-        menu.exec(self._col_filter_btn.mapToGlobal(self._col_filter_btn.rect().bottomLeft()))
-
-    def _toggle_column(self, col: int, visible: bool):
-        """切换列的显示/隐藏"""
-        self._table.setColumnHidden(col, not visible)
 
     def _on_context_menu(self, pos):
         """右键菜单触发"""

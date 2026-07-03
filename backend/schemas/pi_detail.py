@@ -19,8 +19,9 @@ class PIInvoiceItemDetailResponse(BaseModel):
     detail_desc: Optional[str] = None                  # 列5: 产品名称
     image_url: Optional[str] = None                    # 列6: 图片URL
     customer_model: Optional[str] = None               # 列7: 客户型号
+    color: Optional[str] = None                        # 列8: 颜色（与 product_feature 拼接显示）
     product_feature: Optional[str] = None              # 列8: 产品特性 ⭐
-    
+
     # === B组: 价格与财务 (列9-20) ===
     quantity: float = 0                                # 列9: 数量
     unit_price: float = 0                              # 列10: 报价
@@ -65,6 +66,7 @@ class PIInvoiceItemDetailResponse(BaseModel):
     # Pydantic 默认会丢弃未知字段，导致前端编辑对话框回填时拿到 None，
     # 进而 fallback 到 carton_count（=总箱数），把"件数设置"误填成总箱数
     boxes_count: Optional[int] = None                  # 列35: 箱数（"1件多箱"模式下=每件箱数）
+    cartons_per_unit: Optional[int] = None            # 每件箱数（1件多箱模式）
     estimated_volume: Optional[float] = None           # 列36: 预估体积
     carton_gross_weight: Optional[float] = None        # 列37: 整箱毛重
     total_weight: Optional[float] = None               # 列38: 总重量

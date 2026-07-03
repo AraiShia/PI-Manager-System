@@ -441,6 +441,10 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
             getattr(item, 'units_per_carton', None),
             package_data.get("units_per_carton")
         ),
+        "cartons_per_unit": _snapshot_or_fallback(
+            getattr(item, 'cartons_per_unit', None),
+            package_data.get("cartons_per_unit")
+        ),
         "gross_weight_kg": _snapshot_or_fallback(
             getattr(item, 'gross_weight_kg', None) and float(getattr(item, 'gross_weight_kg', None)),
             package_data.get("gross_weight_kg")
@@ -448,6 +452,10 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         "boxes_count": _snapshot_or_fallback(
             getattr(item, 'boxes_count', None),
             package_data.get("boxes_count")
+        ),
+        "cartons_per_unit": _snapshot_or_fallback(
+            getattr(item, 'cartons_per_unit', None),
+            package_data.get("cartons_per_unit")
         ),
         "packing_type": _snapshot_or_fallback(
             getattr(item, 'packing_type', None) or getattr(item, 'packaging', None),
@@ -469,10 +477,14 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         # 图片URL
         "image_url": image_url,
         "photo": image_url,  # 导出模板用 photo 字段
-        # 颜色：从产品表或采购单获取
-        "color": getattr(product, 'color', None) if product else (getattr(po_item, 'color', None) if po_item else None),
+        # 颜色：优先 PI item 自身，其次产品表或采购单
+        "color": (
+            getattr(item, 'color', None)
+            or (getattr(product, 'color', None) if product else None)
+            or (getattr(po_item, 'color', None) if po_item else None)
+        ),
         "customer_model": customer_model,
-        "product_feature": None,
+        "product_feature": getattr(item, 'product_feature', None),
 
         # === B组: 价格与财务 (列9-20) ===
         "quantity": float(item.quantity),
@@ -597,7 +609,7 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
             getattr(item, 'purchase_option_name', None),
             None
         ),
-        "product_detail": None,
+        "product_detail": getattr(item, 'product_detail', None),
         # FixPlan Task 4: 工厂编号 优先快照字段
         "factory_no": _snapshot_or_fallback(
             getattr(item, 'factory_code', None),
@@ -622,7 +634,8 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
                 (getattr(product, 'units_per_carton', None) if product else None)
             ) or _derive_pack_spec_from_packaging(
                 getattr(item, 'packaging', None),
-                getattr(item, 'carton_count', None)
+                getattr(item, 'carton_count', None),
+                getattr(item, 'cartons_per_unit', None)
             )
         ),
         # Excel列35: 箱数 = 向上取整(数量 / 每箱装入数量)
@@ -667,26 +680,30 @@ def _build_item_detail_v11(db: Session, item: PiProformaInvoiceItem, customer: C
         "invoice_status": None
     }
     
-    # 2026-06-26 修复："1件多箱"模式下，DB 的 carton_count 存的是"每件商品箱数"，
-    # 需要乘以数量得到总箱数、总体积、总重量
+    # 2026-07-03 修复："1件多箱"模式下，cartons_per_unit 是每件箱数，
+    # carton_count 是总箱数（已由前端保存为 数量×每件箱数），后端不再重复相乘。
+    # 若总箱数快照缺失，则按数量×每件箱数兜底计算；体积/重量统一基于总箱数。
     packaging_val = detail.get("packaging")
     if packaging_val == "1件多箱":
-        carton_count_per_piece = int(getattr(item, 'carton_count', None) or 0)
+        cartons_per_unit = int(getattr(item, 'cartons_per_unit', None) or 0)
         qty = int(item.quantity or 0)
-        if carton_count_per_piece > 0 and qty > 0:
-            total_cartons = qty * carton_count_per_piece
-            detail["carton_count"] = total_cartons
+        if cartons_per_unit > 0 and qty > 0:
+            # 优先使用 DB 中已保存的总箱数快照，避免重复计算
+            total_cartons = detail.get("carton_count")
+            if total_cartons is None:
+                total_cartons = qty * cartons_per_unit
+                detail["carton_count"] = total_cartons
             # 保留每件箱数，供前端编辑对话框回填"件数设置"
-            detail["boxes_count"] = carton_count_per_piece
+            detail["boxes_count"] = cartons_per_unit
 
             # 单箱体积 (m³)
             carton_volume_m3 = getattr(item, 'carton_volume_m3', None) or _parse_carton_size_to_m3(detail.get("carton_size"))
-            if carton_volume_m3:
+            if carton_volume_m3 and total_cartons:
                 detail["estimated_volume"] = round(float(carton_volume_m3) * total_cartons, 4)
 
             # 单箱毛重 (kg)
             gross_weight = detail.get("carton_gross_weight")
-            if gross_weight:
+            if gross_weight and total_cartons:
                 detail["total_weight"] = round(float(gross_weight) * total_cartons, 2)
 
     return detail
@@ -969,30 +986,32 @@ def _format_packing_spec_display(units_per_carton: float) -> str:
         return None
 
 
-def _derive_pack_spec_from_packaging(packaging: str, carton_count) -> Optional[str]:
+def _derive_pack_spec_from_packaging(packaging: str, carton_count, cartons_per_unit=None) -> Optional[str]:
     """
-    2026-06-23 新增：根据包装方式 + 箱数派生打包规格字符串
+    2026-07-03 修复：根据包装方式派生打包规格字符串
 
     派生规则：
         "1件/箱"   → "1 pcs/ctn"
-        "1件多箱" → "1pcs/{N} ctn"（N = carton_count，缺失则回退 "1pcs/ctn"）
+        "1件多箱" → "1pcs/{N} ctn"（N = cartons_per_unit，缺失则回退 "1pcs/ctn"）
         "多件/箱" → 需配合 units_per_carton（_format_packing_spec_display 处理），返回 None
         其他/None → None
 
     用于 _build_item_detail_v11 详情显示兜底：当 item.pack_spec 字段为空、且
-    package_obj 也没有 units_per_carton 时，按 packaging + carton_count 实时计算。
+    package_obj 也没有 units_per_carton 时，按 packaging + cartons_per_unit 实时计算。
     """
     if not packaging:
         return None
     if packaging == "1件/箱":
         return "1 pcs/ctn"
     if packaging == "1件多箱":
-        try:
-            n = int(carton_count) if carton_count else None
-        except (TypeError, ValueError):
-            n = None
+        n = cartons_per_unit
+        if n is None:
+            try:
+                n = int(carton_count) if carton_count else None
+            except (TypeError, ValueError):
+                n = None
         if n and n > 0:
-            return f"1pcs/{n} ctn"
+            return f"1pcs/{int(n)} ctn"
         return "1pcs/ctn"
     # 多件/箱的 pack_spec 由 _format_packing_spec_display 处理（需要 units_per_carton）
     return None
@@ -1077,6 +1096,8 @@ def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaIn
     # 🔧 2026-06-22 新增：41列设计字段(导入时直接存入主表)
     if 'customer_model' in update_data:
         db_item.customer_model = update_data['customer_model']
+    if 'color' in update_data:
+        db_item.color = update_data['color']
     if 'product_feature' in update_data:
         db_item.product_feature = update_data['product_feature']
     if 'product_detail' in update_data:
@@ -1153,15 +1174,9 @@ def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaIn
     if 'units_per_carton' in update_data and update_data['units_per_carton'] is not None:
         db_item.units_per_carton = update_data['units_per_carton']
         print(f"[DEBUG] update_pi_item: 更新 units_per_carton={update_data['units_per_carton']}")
-    if 'boxes_count' in update_data and update_data['boxes_count'] is not None:
-        # ⚠️ 2026-06-23 修复：DB 模型没有 boxes_count 字段，但有 carton_count
-        # "1件多箱" 模式下的"箱数"应该写进 carton_count（41 列 Col 35 箱数）
-        # 原代码写 db_item.boxes_count 会静默失败（SQLAlchemy 不允许未声明字段）
-        try:
-            db_item.carton_count = int(update_data['boxes_count'])
-            print(f"[DEBUG] update_pi_item: boxes_count={update_data['boxes_count']} 写入 carton_count")
-        except (TypeError, ValueError):
-            pass
+    if 'cartons_per_unit' in update_data and update_data['cartons_per_unit'] is not None:
+        db_item.cartons_per_unit = update_data['cartons_per_unit']
+        print(f"[DEBUG] update_pi_item: 更新 cartons_per_unit={update_data['cartons_per_unit']}")
 
     # 2026-06-23 新增：根据 packaging 派生 pack_spec 字符串写入 DB
     # 用户选 1件/箱 时 units_per_carton=空 → 原来 pack_spec 永远 None → 41 列 Col 34 "打包规格" 列空
@@ -1178,12 +1193,19 @@ def update_pi_item(db: Session, item_id: int, update_data: dict) -> PiProformaIn
         # 优先保留前端已写入的 pack_spec（order_summary_edit_dialog.py L794-801 自己会算）
         pass
     elif packaging_val == '1件多箱':
-        # 1件多箱：每箱 1 件，箱数 = carton_count（DB 字段是 carton_count 而非 boxes_count）
-        # 2026-06-23：用户要求回填为 "1pcs/{N} ctn"
-        try:
-            n = int(db_item.carton_count) if db_item.carton_count else None
-        except (TypeError, ValueError):
-            n = None
+        # 2026-07-03 修复：1件多箱的 pack_spec 应使用每件箱数 cartons_per_unit，
+        # 而不是总箱数 carton_count；格式为 "1pcs/{N} ctn"。
+        n = None
+        if db_item.cartons_per_unit is not None:
+            try:
+                n = int(db_item.cartons_per_unit)
+            except (TypeError, ValueError):
+                n = None
+        if n is None and db_item.carton_count is not None:
+            try:
+                n = int(db_item.carton_count)
+            except (TypeError, ValueError):
+                n = None
         if n and n > 0:
             db_item.pack_spec = f"1pcs/{n} ctn"
         else:

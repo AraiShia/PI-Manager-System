@@ -80,6 +80,11 @@ class OrderImportDialog(QDialog):
         else:
             # 自动加载客户列表
             QTimer.singleShot(100, self.load_customers)
+
+        # 客户搜索防抖定时器
+        self._customer_search_timer = QTimer()
+        self._customer_search_timer.setSingleShot(True)
+        self._customer_search_timer.timeout.connect(self._perform_customer_search)
     
     def init_ui(self):
         """初始化UI"""
@@ -209,12 +214,12 @@ class OrderImportDialog(QDialog):
         customer_label = QLabel("客户：")
         customer_layout.addWidget(customer_label)
 
-        # 🔧 2026-07-02 把"加载"按钮改为搜索框，支持按客户名/区域模糊搜索
+        # 🔧 2026-07-02 把"加载"按钮改为搜索框，支持按客户名/编号模糊搜索
         self.customer_search = QLineEdit()
-        self.customer_search.setPlaceholderText("搜索客户名称/区域")
+        self.customer_search.setPlaceholderText("输入客户名称/编号搜索...")
         self.customer_search.setMinimumWidth(200)
         self.customer_search.setClearButtonEnabled(True)
-        self.customer_search.textChanged.connect(self._filter_customers)
+        self.customer_search.textChanged.connect(self._on_customer_search_text_changed)
         customer_layout.addWidget(self.customer_search)
 
         self.customer_combo = QComboBox()
@@ -754,48 +759,73 @@ class OrderImportDialog(QDialog):
 
     @Slot()
     def load_customers(self):
-        """加载客户列表"""
+        """加载全部客户列表"""
         try:
             response = self.api_client.get("/customers/")
-            if response:
-                # 🔧 2026-07-02 保存完整客户列表，用于搜索过滤
-                self._all_customers = list(response)
-                self._filter_customers(self.customer_search.text() if hasattr(self, 'customer_search') else "")
+            customers = []
+            if isinstance(response, dict):
+                customers = response.get("data") or response.get("results") or []
+            elif isinstance(response, list):
+                customers = response
+
+            self._all_customers = list(customers)
+            self._populate_customer_combo(customers)
 
             # 初始化单条新增按钮状态
             QTimer.singleShot(100, self._update_single_add_button_state)
         except Exception as e:
             QMessageBox.warning(self, "错误", f"加载客户失败: {e}")
 
-    def _filter_customers(self, keyword: str):
-        """根据搜索关键词过滤客户列表（按客户名或区域模糊匹配）"""
-        if not hasattr(self, '_all_customers'):
-            return
-
-        # 阻止信号触发（避免刷新PI预览）
+    def _populate_customer_combo(self, customers: list):
+        """用客户列表填充下拉框"""
         self.customer_combo.blockSignals(True)
         try:
             self.customer_combo.clear()
             self.customer_combo.addItem("请选择客户", None)
-
-            keyword_lower = keyword.strip().lower()
-            for customer in self._all_customers:
-                name = (customer.get('customer_name') or '').lower()
-                region = (customer.get('region') or customer.get('country') or '').lower()
-                code = (customer.get('customer_code') or '').lower()
-
-                # 关键词为空显示全部；否则按客户名/区域/客户代码匹配
-                if not keyword_lower or keyword_lower in name or keyword_lower in region or keyword_lower in code:
-                    self.customer_combo.addItem(
-                        customer.get('customer_name', ''),
-                        customer.get('id'))
-                    # 存储完整客户信息到 UserRole+1
-                    self.customer_combo.setItemData(
-                        self.customer_combo.count() - 1,
-                        customer,
-                        Qt.ItemDataRole.UserRole + 1)
+            for customer in customers:
+                display = f"{customer.get('customer_code', '')} - {customer.get('customer_name', '')}"
+                self.customer_combo.addItem(display, customer.get('id'))
+                # 存储完整客户信息到 UserRole+1
+                self.customer_combo.setItemData(
+                    self.customer_combo.count() - 1,
+                    customer,
+                    Qt.ItemDataRole.UserRole + 1)
         finally:
             self.customer_combo.blockSignals(False)
+
+    def _on_customer_search_text_changed(self, text: str):
+        """客户搜索文本变化时延迟搜索"""
+        self._customer_search_timer.stop()
+        keyword = text.strip()
+        if len(keyword) >= 1:
+            self.customer_combo.setPlaceholderText("搜索中...")
+            self._customer_search_timer.start(150)
+        else:
+            # 清空时恢复全部客户列表
+            self._populate_customer_combo(getattr(self, '_all_customers', []))
+
+    def _perform_customer_search(self):
+        """调用后端接口搜索客户并展示下拉结果"""
+        keyword = self.customer_search.text().strip()
+        if len(keyword) < 1:
+            return
+
+        try:
+            response = self.api_client.get(f"/customers/search?keyword={keyword}")
+            customers = []
+            if isinstance(response, dict):
+                customers = response.get("data") or response.get("results") or []
+            elif isinstance(response, list):
+                customers = response
+
+            self._populate_customer_combo(customers)
+            if not customers:
+                self.customer_combo.setPlaceholderText("无匹配客户")
+            else:
+                self.customer_combo.showPopup()
+        except Exception as e:
+            print(f"[订单导入] 客户搜索失败: {e}")
+            self.customer_combo.setPlaceholderText("搜索失败，请重试")
 
     @Slot()
     def browse_file(self):
@@ -1450,10 +1480,13 @@ class OrderImportDialog(QDialog):
             self.import_btn.setEnabled(True)
             return
 
+        # 判断是否有有效的原始 Excel 文件
+        has_valid_file = bool(file_path) and file_path != "未选择文件" and os.path.exists(file_path)
+
         # 🔧 2026-06-29 修复：如果用户右键删除了某些预览行，
         # 需要在导入前生成一个排除这些行的临时 Excel 文件，
         # 因为后端 /orders/import 接口不支持跳过行参数。
-        if self._deleted_preview_indices:
+        if self._deleted_preview_indices and has_valid_file:
             try:
                 temp_file_path = self._build_filtered_excel_for_import(file_path)
             except Exception as e:
@@ -1468,8 +1501,28 @@ class OrderImportDialog(QDialog):
                     pass
             self._last_temp_file = temp_file_path
             file_path_to_import = temp_file_path
-        else:
+        elif has_valid_file:
             file_path_to_import = file_path
+        else:
+            # 无 Excel 文件时，根据手动添加行生成临时 Excel
+            manual_rows = [r for r in self.preview_data.get('rows', []) if isinstance(r, dict)]
+            if not manual_rows:
+                QMessageBox.warning(self, "提示", "请选择要导入的Excel文件或手动添加商品")
+                self.import_btn.setEnabled(True)
+                return
+            try:
+                file_path_to_import = self._build_excel_from_manual_rows(manual_rows)
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"生成临时文件失败: {str(e)}")
+                self.import_btn.setEnabled(True)
+                return
+            # 清理上次的临时文件
+            if hasattr(self, '_last_temp_file') and self._last_temp_file and os.path.exists(self._last_temp_file):
+                try:
+                    os.unlink(self._last_temp_file)
+                except OSError:
+                    pass
+            self._last_temp_file = file_path_to_import
 
         self.import_worker = ImportWorker(self.api_client, file_path_to_import, customer_id)
         self.import_worker.import_completed.connect(self.on_import_completed)
@@ -1506,7 +1559,35 @@ class OrderImportDialog(QDialog):
         wb.close()
         print(f"[过滤导入] 原始文件={src_file_path}, 跳过 {len(excel_rows_to_skip)} 行 → {temp_path}")
         return temp_path
-    
+
+    def _build_excel_from_manual_rows(self, rows: list) -> str:
+        """将手动添加的 dict 行转换为临时 Excel 文件
+        🔧 2026-07-03 新增：支持无 Excel 文件时直接导入手动添加的商品。
+        """
+        wb = Workbook()
+        ws = wb.active
+
+        # 列头使用后端 parser 能识别的名称
+        headers = ['客户产品编号', 'OE号', 'QTY', '单价']
+        ws.append(headers)
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            ws.append([
+                row.get('customer_code', ''),
+                row.get('oe_number', '') or '',
+                row.get('quantity', 1),
+                row.get('unit_price', 0),
+            ])
+
+        fd, temp_path = tempfile.mkstemp(suffix='.xlsx', prefix='pi_import_manual_')
+        os.close(fd)
+        wb.save(temp_path)
+        wb.close()
+        print(f"[手动导入] 生成临时 Excel: {temp_path}, 行数: {len(rows)}")
+        return temp_path
+
     def _start_supplement_import(self):
         """[6.2.1] 补充商品导入"""
         if not self._confirm_and_filter_duplicates():
@@ -1547,12 +1628,13 @@ class OrderImportDialog(QDialog):
             )
             
             if response and response.get('success'):
+                created_count = response.get('created_count', 0)
                 # 发送信号通知父窗口刷新
-                self.import_completed.emit(True, len(rows), 0, [], [])
+                self.import_completed.emit(True, created_count, 0, [], [])
                 QMessageBox.information(
                     self,
                     "补充完成",
-                    f"成功补充 {len(rows)} 个商品到订单"
+                    f"成功补充 {created_count} 个商品到订单"
                 )
                 self.close()
             else:
@@ -1570,6 +1652,9 @@ class OrderImportDialog(QDialog):
     @Slot(bool, int, int, list, list)
     def on_import_completed(self, success: bool, success_count: int, failed_count: int, errors: list, created_order_ids: list):
         """导入完成"""
+        # 通知父窗口导入结果，以便其刷新订单列表并自动打开新订单详情
+        self.import_completed.emit(success, success_count, failed_count, errors, created_order_ids or [])
+
         if success:
             QMessageBox.information(
                 self,
@@ -1791,6 +1876,12 @@ class OrderImportDialog(QDialog):
 
     def _is_row_incomplete(self, row, headers, model_col_idx, qty_col_idx) -> bool:
         """[6.2.25] 检查行是否不完整（Model 或 Qty 缺失）"""
+        # 兼容单条新增：product_data 是 dict
+        if isinstance(row, dict):
+            model_val = _normalize(row.get('customer_code') or row.get('customer_model') or row.get('model') or '')
+            qty_val = _normalize(row.get('quantity') or row.get('qty') or '')
+            return not model_val or not qty_val
+
         # 检查 Model
         if model_col_idx is not None and model_col_idx < len(row):
             model_val = str(row[model_col_idx]).strip() if row[model_col_idx] else ''

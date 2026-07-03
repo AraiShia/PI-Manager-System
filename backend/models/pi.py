@@ -67,6 +67,8 @@ class PiProformaInvoiceItem(Base):
     packaging = Column(String(100), nullable=True)                   # 包装方式
     carton_size = Column(String(100), nullable=True)                 # 外箱尺寸 LxWxH cm
     pack_spec = Column(String(100), nullable=True)                   # 装箱规格 units_per_carton
+    units_per_carton = Column(Integer, nullable=True)                # 每箱件数（多件/箱模式下使用）
+    cartons_per_unit = Column(Integer, nullable=True)                 # 每件箱数（1件多箱模式下使用）
     carton_gross_weight = Column(DECIMAL(15, 4), nullable=True)      # 毛重 kg
 
     # 客户付款(P0/P2 同步)
@@ -83,6 +85,7 @@ class PiProformaInvoiceItem(Base):
 
     # 🔧 2026-06-22 新增：41列设计缺失字段(导入时直接存入主表)
     customer_model = Column(String(100), nullable=True)              # Col 7 客户型号
+    color = Column(String(100), nullable=True)                       # Col 8 产品颜色（与 product_feature 拼接显示）
     product_feature = Column(Text, nullable=True)                    # Col 8 产品特性
     product_detail = Column(Text, nullable=True)                     # Col 31 产品细节
     invoice_status = Column(String(50), nullable=True)               # Col 40 开票情况

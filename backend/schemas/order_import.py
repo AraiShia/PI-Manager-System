@@ -66,6 +66,8 @@ class ProductDetail(BaseModel):
     id: int = Field(..., description="产品ID")
     detail_desc: Optional[str] = Field(None, max_length=500, description="产品描述")
     oe_number: Optional[str] = Field(None, max_length=100, description="OE号")
+    customer_model: Optional[str] = Field(None, max_length=100, description="客户型号")
+    customer_product_code: Optional[str] = Field(None, max_length=100, description="客户产品编号")
     brand: Optional[str] = Field(None, max_length=100, description="品牌")
     unit_price: Optional[Decimal] = Field(None, ge=0, description="单价")
     currency: Optional[str] = Field(None, pattern='^(USD|RMB)$', description="货币")
@@ -75,15 +77,18 @@ class ProductDetail(BaseModel):
 
 class ProductMatchResult(BaseModel):
     """产品匹配结果"""
-    product_id: int = Field(..., description="产品ID")
-    match_type: str = Field(..., pattern='^(exact_customer_code|oe_number|product_name)$', 
+    product_id: Optional[int] = Field(None, description="产品ID（无正式产品时为空）")
+    match_type: str = Field(..., pattern='^(exact_customer_code|oe_number|product_name)$',
                            description="匹配类型")
     match_score: float = Field(..., ge=0, le=100, description="匹配度评分（0-100）")
     detail_desc: Optional[str] = Field(None, max_length=500, description="产品描述")
+    product_name: Optional[str] = Field(None, max_length=200, description="产品名称")
     oe_number: Optional[str] = Field(None, max_length=100, description="OE号")
+    customer_model: Optional[str] = Field(None, max_length=100, description="客户型号")
+    customer_product_code: Optional[str] = Field(None, max_length=100, description="客户产品编号")
     brand: Optional[str] = Field(None, max_length=100, description="品牌")
     product: Optional[ProductDetail] = Field(None, description="产品详情")
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 

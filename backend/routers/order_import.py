@@ -279,7 +279,7 @@ async def import_orders(
             logger.info(f"[✅ 刷新成功] pi_id={pi.id}, pi_no={pi.pi_no}")
 
             created_order_ids.append(pi.id)
-            success_count = 1
+            success_count = len(all_items)
             failed_count = len(rows) - 1 - len(all_items)
 
             total_duration_final = (datetime.now() - import_time).total_seconds()
@@ -826,19 +826,30 @@ async def search_products(
         # 构建返回结果
         results = []
         for match in filtered_matches[:limit]:
+            product = match.get('product')
+            product_detail = None
+            if product:
+                product_detail = ProductDetail(
+                    id=match['product_id'],
+                    detail_desc=match.get('detail_desc'),
+                    oe_number=match.get('oe_number'),
+                    customer_model=match.get('customer_model'),
+                    customer_product_code=match.get('customer_product_code'),
+                    brand=match.get('brand'),
+                    unit_price=getattr(product, 'price_usd', None),
+                    currency='USD'
+                )
             results.append(ProductMatchResult(
                 product_id=match['product_id'],
                 match_type=match['match_type'],
                 match_score=match['match_score'],
                 detail_desc=match.get('detail_desc'),
+                product_name=match.get('product_name'),
                 oe_number=match.get('oe_number'),
+                customer_model=match.get('customer_model'),
+                customer_product_code=match.get('customer_product_code'),
                 brand=match.get('brand'),
-                product=ProductDetail(
-                    id=match['product_id'],
-                    detail_desc=match.get('detail_desc'),
-                    oe_number=match.get('oe_number'),
-                    brand=match.get('brand')
-                ) if match.get('product') else None
+                product=product_detail
             ))
         
         return ProductSearchResponse(
