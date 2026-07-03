@@ -455,6 +455,11 @@ class CustomerProductDialog(QDialog):
         
         QApplication.restoreOverrideCursor()
 
+        # 2026-07-03 修复：若后端已存在主编号，说明该客户产品编号已锁定，
+        # 禁止再次修改。
+        if any(c.get("is_primary") for c in self.codes):
+            self._primary_code_modified = True
+
         self.init_ui()
         self._auto_fill_primary_code()
         self._update_modify_code_button_state()

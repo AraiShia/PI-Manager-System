@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>单品采购信息编辑表 · 原型</title>
+<style>
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:#fff;color:#1f2937;
+    font-family:'Microsoft YaHei','PingFang SC',system-ui,sans-serif;
+    font-size:12px;line-height:1.5;padding:24px;
+  }
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid #1f2937;
+  }
+  .topbar h1{margin:0;font-size:16px;font-weight:600;}
+  .topbar .meta{font-size:11px;color:#6b7280;}
+
+  /* ========== 主表格 ========== */
+  table.main{
+    width:100%;border-collapse:collapse;
+    border:1px solid #b91c1c;font-size:12px;
+  }
+  table.main th,table.main td{
+    border:1px solid #b91c1c;padding:0;vertical-align:middle;
+  }
+
+  /* 标签列：红色文字，右对齐，浅灰背景 */
+  .lbl{
+    color:#b91c1c;font-weight:600;text-align:right;
+    padding:8px 12px;white-space:nowrap;
+    background:#fef2f2;min-width:90px;
+  }
+  .lbl .en{
+    display:block;font-weight:400;font-size:11px;color:#dc2626;
+    font-family:Arial,sans-serif;
+  }
+  .lbl .req{color:#b91c1c;margin-right:2px;font-weight:700;}
+
+  /* 值列 */
+  .v{padding:6px 10px;background:#fff;}
+  .v input,.v select,.v textarea{
+    width:100%;border:0;background:transparent;padding:0;
+    font:inherit;color:#1f2937;
+  }
+  .v input:focus,.v select:focus,.v textarea:focus{
+    outline:0;background:#fffbeb;
+  }
+  .v textarea{resize:vertical;min-height:48px;}
+  .readonly{color:#6b7280;background:#f9fafb;}
+
+  /* 按钮行 */
+  .btn-row{display:flex;gap:8px;padding:4px 8px;}
+  .btn{
+    border:1px solid #b91c1c;background:#fff;color:#b91c1c;
+    padding:4px 16px;cursor:pointer;font-size:12px;
+  }
+  .btn:hover{background:#fef2f2;}
+  .btn.plain{border-color:#d1d5db;color:#374151;}
+  .btn.plain:hover{background:#f3f4f6;}
+
+  /* 产品图片区 */
+  .img-row{padding:8px 12px;display:flex;align-items:center;gap:10px;}
+  .img-main{
+    width:96px;height:96px;border:2px solid #b91c1c;
+    background:linear-gradient(135deg,#dc2626,#991b1b);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:11px;font-weight:600;flex-shrink:0;
+    position:relative;
+  }
+  .img-main::after{
+    content:"主图";position:absolute;bottom:2px;right:4px;
+    font-size:10px;color:rgba(255,255,255,0.8);
+  }
+  .img-thumb{
+    width:80px;height:80px;border:1px solid #d97706;
+    background:linear-gradient(135deg,#fbbf24,#d97706);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:10px;flex-shrink:0;
+  }
+  .img-add{
+    width:80px;height:80px;border:2px dashed #d1d5db;
+    background:#fafafa;display:flex;align-items:center;
+    justify-content:center;color:#9ca3af;font-size:24px;
+    cursor:pointer;flex-shrink:0;
+  }
+  .img-add:hover{border-color:#b91c1c;color:#b91c1c;background:#fef2f2;}
+
+  /* 产品名称：中文+英文两行 */
+  .pname-cn{font-size:14px;font-weight:600;color:#1f2937;margin-bottom:4px;}
+  .pname-en{font-size:12px;color:#6b7280;font-family:Arial,sans-serif;font-style:italic;}
+
+  /* 分组标题 */
+  .sec-title{
+    background:#b91c1c;color:#fff;padding:8px 16px;
+    font-weight:600;font-size:13px;letter-spacing:1px;
+    text-align:left;
+  }
+
+  /* 子表格（销售/采购明细） */
+  table.sub{width:100%;border-collapse:collapse;font-size:12px;}
+  table.sub th,table.sub td{
+    border:1px solid #d1d5db;padding:6px 8px;text-align:center;
+  }
+  table.sub th{background:#f3f4f6;color:#374151;font-weight:600;font-size:11px;}
+  table.sub td input{width:100%;border:0;background:transparent;text-align:center;}
+  table.sub td input:focus{outline:1px solid #b91c1c;background:#fef2f2;}
+  .formula{color:#065f46;font-family:monospace;}
+  .num{text-align:right;}
+  td.num{text-align:right;}
+
+  /* 备注文字 */
+  .note{font-size:11px;color:#6b7280;font-style:italic;margin-top:4px;}
+
+  /* chip */
+  .chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}
+  .chip{
+    display:inline-flex;align-items:center;gap:3px;
+    padding:2px 8px;border:1px solid #d1d5db;border-radius:3px;
+    font-size:11px;background:#fff;
+  }
+  .chip .x{cursor:pointer;color:#9ca3af;font-weight:700;}
+  .chip .x:hover{color:#b91c1c;}
+  .chip.add{border-style:dashed;color:#6b7280;}
+
+  .footer-bar{
+    margin-top:16px;display:flex;gap:8px;justify-content:flex-end;
+  }
+  .btn.primary{background:#b91c1c;color:#fff;}
+  .btn.primary:hover{background:#991b1b;}
+
+  /* 两列布局容器 */
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:0;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>单品采购信息编辑表</h1>
+  <div class="meta">PROFORMA · 单品 SKU · v1.0.0.29</div>
+</div>
+
+<!-- ============ 第一部分：基本信息（头部） ============ -->
+<table class="main">
+  <tr>
+    <td class="lbl" style="width:90px">
+      <span class="req">*</span>客户
+      <span class="en">（Customer）：</span>
+    </td>
+    <td class="v" style="width:25%">
+      <input value="DAZA" style="font-size:16px;font-weight:600;"/>
+    </td>
+    <td style="width:10%;text-align:center;">
+      <button class="btn">搜索</button>
+    </td>
+    <td style="width:12%;text-align:center;">
+      <button class="btn">新增客户</button>
+    </td>
+    <td class="v" style="color:#b91c1c;text-align:center;font-weight:600;">
+      显示当前客户的国家
+    </td>
+  </tr>
+
+  <!-- 第二行：图片区 + 产品类别 -->
+  <tr>
+    <td class="lbl" rowspan="2">
+      <span class="req">*</span>客户型号
+      <span class="en">Model</span>
+    </td>
+    <td class="v" colspan="3" rowspan="2">
+      <div class="img-row">
+        <div class="img-main">主图</div>
+        <div class="img-thumb">附图1</div>
+        <div class="img-thumb">附图2</div>
+        <div class="img-thumb">附图3</div>
+        <div class="img-add">+</div>
+      </div>
+      <div class="note" style="padding:0 12px 8px">
+        左键双击显示原图；右键：上传 / 更新 / 删除；第一张为主图，必填
+      </div>
+    </td>
+    <td style="background:#fef2f2;">
+      <div style="padding:8px 12px;">
+        <div style="color:#b91c1c;font-weight:600;margin-bottom:6px;">
+          <span class="req">*</span>产品类别<br>
+          <span style="font-weight:400;font-size:11px;font-family:Arial,sans-serif;">P-Category</span>
+        </div>
+        <select style="width:100%;border:1px solid #d1d5db;padding:4px;font-size:12px;">
+          <option>汽配 / 发动机 / 发动机配件</option>
+        </select>
+      </div>
+    </td>
+  </tr>
+  <tr>
+    <td style="background:#fff;">
+      <div style="padding:8px 12px;">
+        <div style="color:#b91c1c;font-weight:600;margin-bottom:6px;">
+          我司产编号<br>
+          <span style="font-weight:400;font-size:11px;font-family:Arial,sans-serif;">S.NO.</span>
+        </div>
+        <input value="SP315" readonly style="color:#6b7280;"/>
+      </div>
+    </td>
+  </tr>
+
+  <!-- 第三行：客户型号值 + 产品名称 -->
+  <tr>
+    <td class="lbl" style="background:#fef2f2;"></td>
+    <td class="v" colspan="3" style="padding:10px 16px;">
+      <span style="font-size:18px;font-weight:600;">DAKHXHM666</span>
+    </td>
+    <td style="background:#fff;padding:8px 12px;">
+      <div style="color:#b91c1c;font-weight:600;margin-bottom:4px;">
+        <span class="req">*</span>产品名称<br>
+        <span style="font-weight:400;font-size:11px;font-family:Arial,sans-serif;">P-Name</span>
+      </div>
+    </td>
+  </tr>
+  <tr>
+    <td class="lbl">
+      产品要求
+      <span class="en">P-Details</span>
+    </td>
+    <td class="v" colspan="3">
+      <textarea rows="3">Black, white lid, black bottom. One per box, with packaging bag and label.</textarea>
+    </td>
+    <td class="v">
+      <div class="pname-cn">航空用便携式猫咪宠物笼</div>
+      <div class="pname-en">Portable cat pet carriers for airline use</div>
+    </td>
+  </tr>
+
+  <!-- 第四行：产品颜色 -->
+  <tr>
+    <td class="lbl">
+      产品颜色
+      <span class="en">P-color</span>
+    </td>
+    <td class="v" colspan="3">
+      <input value="Black+Gery；Black+Red；"/>
+    </td>
+    <td class="v">
+      <!-- OE号 / 客户产品编号 -->
+      <div style="margin-bottom:8px;">
+        <div style="color:#b91c1c;font-weight:600;margin-bottom:4px;">OE号列表<br><span style="font-weight:400;font-size:11px;">OE-NO.</span></div>
+        <div class="chips">
+          <span class="chip">OE-12345 <span class="x">×</span></span>
+          <span class="chip">OE-67890 <span class="x">×</span></span>
+          <span class="chip add">+ 添加</span>
+        </div>
+      </div>
+      <div>
+        <div style="color:#b91c1c;font-weight:600;margin-bottom:4px;">客户产品编号<br><span style="font-weight:400;font-size:11px;">Cust-PN</span></div>
+        <div class="chips">
+          <span class="chip">DAKHXHM666 <span class="x">×</span></span>
+          <span class="chip add">+ 添加</span>
+        </div>
+      </div>
+    </td>
+  </tr>
+</table>
+
+<!-- ============ 第二部分：销售细节 ============ -->
+<div style="height:24px"></div>
+<table class="main">
+  <tr><th class="sec-title" colspan="8">② 销售细节</th></tr>
+  <tr>
+    <td class="lbl" style="width:12%">
+      <span class="req">*</span>采购数量<br>
+      <span class="en">QTY</span>
+    </td>
+    <td class="v num" style="width:10%"><input class="num" value="100" style="text-align:right;"/></td>
+    <td class="lbl" style="width:12%">
+      <span class="req">*</span>报价<br>
+      <span class="en">PRICE / USD</span>
+    </td>
+    <td class="v num" style="width:10%"><input class="num" value="3.74" style="text-align:right;"/></td>
+    <td class="lbl" style="width:10%">
+      金额<br>
+      <span class="en">TOTAL</span>
+    </td>
+    <td class="v num" style="width:10%">
+      <input class="num formula" value="= L * M" readonly style="text-align:right;"/>
+    </td>
+    <td class="lbl" style="width:10%">价格变动</td>
+    <td class="v"><input value="$3.80 → $3.53"/></td>
+  </tr>
+  <tr>
+    <td class="lbl">客户需求<br><span class="en">Comments</span></td>
+    <td class="v" colspan="2"><input value="Need cheaper"/></td>
+    <td class="lbl">答复<br><span class="en">Reply</span></td>
+    <td class="v" colspan="2"><input value="ok"/></td>
+    <td class="lbl">确定信息<br><span class="en">Confirmation</span></td>
+    <td class="v"><input value="$3.8 → $3.53"/></td>
+  </tr>
+  <tr>
+    <td class="lbl">报价备注<br><span class="en">Q.Notes</span></td>
+    <td class="v" colspan="3"><input value="保持原包装"/></td>
+    <td class="lbl">综合毛利额</td>
+    <td class="v num"><input class="num formula" value="966.40" readonly style="text-align:right;"/></td>
+    <td class="lbl">预估毛利率</td>
+    <td class="v num"><input class="num formula" value="27.4%" readonly style="text-align:right;"/></td>
+  </tr>
+</table>
+
+<!-- ============ 第三部分：采购信息 ============ -->
+<div style="height:24px"></div>
+<table class="main">
+  <tr><th class="sec-title" colspan="8">③ 采购信息</th></tr>
+  <tr>
+    <td class="lbl" style="width:12%">
+      <span class="req">*</span>优选供应商
+    </td>
+    <td class="v" style="width:22%">
+      <input value="广东彩拓科技"/>
+      <div class="note">HJLK2204</div>
+    </td>
+    <td class="lbl" style="width:8%">货源地</td>
+    <td class="v" style="width:10%"><input value="霸州"/></td>
+    <td class="lbl" style="width:12%">开票工厂（全称）</td>
+    <td class="v" colspan="3"><input value="广东彩拓科技有限公司"/></td>
+  </tr>
+  <tr>
+    <td class="lbl">供应商链接</td>
+    <td class="v" colspan="7"><input value="https://detail.1688.com/offer/996661236154.html?offerId=996661236154"/></td>
+  </tr>
+  <tr>
+    <td class="lbl">
+      产品特性/选项/采购备注<br>
+      <span class="en">Purchasing Notes</span>
+    </td>
+    <td class="v" colspan="7"><input value="彩色不带电池款，中性包装，标签贴右下角"/></td>
+  </tr>
+  <tr>
+    <td class="lbl">
+      <span class="req">*</span>采购方式
+    </td>
+    <td class="v">
+      <select><option>1688 / 微信联系 / 线下合同</option></select>
+      <div class="note">若是线下合同：边上显示「合同编号」</div>
+    </td>
+    <td class="lbl">
+      <span class="req">*</span>付款方式
+    </td>
+    <td class="v" colspan="2"><input value="1688线上支付、人民币"/></td>
+    <td class="lbl">付款 1</td>
+    <td class="v num"><input class="num" value="870" style="text-align:right;"/></td>
+    <td class="lbl">付款 2</td>
+  </tr>
+  <tr>
+    <td class="v num" colspan="6" style="text-align:right;background:#fef2f2;font-weight:600;color:#b91c1c;">
+      已付款合计 / 未付款金额
+    </td>
+    <td class="v num">1,870</td>
+    <td class="v num"><input class="num formula" value="待算" readonly style="text-align:right;"/></td>
+  </tr>
+
+  <!-- 采购成本明细子表 -->
+  <tr>
+    <td class="lbl">采购成本明细</td>
+    <td class="v" colspan="7">
+      <table class="sub">
+        <tr>
+          <th>预估美金价</th>
+          <th><span style="color:#b91c1c;">*</span>人民币采购价</th>
+          <th>贴标费</th>
+          <th>运费</th>
+          <th>金额</th>
+          <th><span style="color:#b91c1c;">*</span>开票情况</th>
+          <th>开票备注</th>
+        </tr>
+        <tr>
+          <td><input class="formula" value="= M × 1.35 / 6.6" readonly/></td>
+          <td><input value="18.30"/></td>
+          <td><input value="10.00"/></td>
+          <td><input value="30.00"/></td>
+          <td><input class="formula" value="= M × QTY + N + O" readonly/></td>
+          <td>
+            <select style="width:100%;border:0;background:transparent;"><option>增票</option></select>
+          </td>
+          <td><input value="加收了 10%"/></td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<!-- ============ 第四部分：包装规格 ============ -->
+<div style="height:24px"></div>
+<table class="main">
+  <tr><th class="sec-title" colspan="8">④ 包装规格</th></tr>
+  <tr>
+    <td class="lbl" style="width:12%">
+      <span class="req">*</span>纸箱包装
+    </td>
+    <td class="v" style="width:18%">
+      <input value="80 × 60 × 35 cm"/>
+    </td>
+    <td class="lbl" style="width:12%">
+      <span class="req">*</span>打包规格
+    </td>
+    <td class="v" style="width:10%"><input value="20 pcs / 箱"/></td>
+    <td class="lbl" style="width:10%">整箱毛重</td>
+    <td class="v" style="width:10%"><input value="25 kgs"/></td>
+    <td class="lbl" style="width:10%">预估体积 / 预估毛重</td>
+    <td class="v"><input value="0.84 CBM / 100 kgs"/></td>
+  </tr>
+  <tr>
+    <td class="lbl">
+      箱规明细<br>
+      <span class="en">最多 5 条</span>
+    </td>
+    <td class="v" colspan="7">
+      <table class="sub">
+        <tr>
+          <th>箱规名</th><th>长 cm</th><th>宽 cm</th><th>高 cm</th>
+          <th>箱数</th><th>单箱重 kgs</th><th>合计 kgs</th><th>操作</th>
+        </tr>
+        <tr>
+          <td><input value="纸箱规格-1"/></td>
+          <td><input value="80"/></td>
+          <td><input value="60"/></td>
+          <td><input value="35"/></td>
+          <td><input value="2"/></td>
+          <td><input value="25"/></td>
+          <td><input value="50"/></td>
+          <td><span style="color:#b91c1c;cursor:pointer;">删除</span></td>
+        </tr>
+        <tr>
+          <td><input value="纸箱规格-2"/></td>
+          <td><input value="40"/></td>
+          <td><input value="60"/></td>
+          <td><input value="35"/></td>
+          <td><input value="2"/></td>
+          <td><input value="12"/></td>
+          <td><input value="24"/></td>
+          <td><span style="color:#b91c1c;cursor:pointer;">删除</span></td>
+        </tr>
+        <tr>
+          <td colspan="8" style="background:#fafafa;color:#6b7280;cursor:pointer;">
+            + 增加一行（最多 5 条）
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<!-- ============ 第五部分：收货入库 ============ -->
+<div style="height:24px"></div>
+<table class="main">
+  <tr><th class="sec-title" colspan="6">⑤ 收货入库信息</th></tr>
+  <tr>
+    <td class="lbl" style="width:12%">入库数量</td>
+    <td class="v" style="width:15%"><input value="100 pcs"/></td>
+    <td class="lbl" style="width:8%">箱数</td>
+    <td class="v" style="width:10%"><input value="5 CTNS"/></td>
+    <td class="lbl" style="width:10%">总重量</td>
+    <td class="v"><input value="80 kgs"/></td>
+  </tr>
+  <tr>
+    <td class="lbl">收货日期</td>
+    <td class="v"><input value="2026-07-12"/></td>
+    <td class="lbl">状态</td>
+    <td class="v"><input value="已入库"/></td>
+    <td class="lbl">质检</td>
+    <td class="v"><input value="合格"/></td>
+  </tr>
+</table>
+
+<div class="note" style="margin-top:12px;">
+  必填项：表中加 <span style="color:#b91c1c;">*</span> 的；收货入库时输入，回车键跳下一格
+</div>
+
+<div class="footer-bar">
+  <button class="btn plain">取消</button>
+  <button class="btn plain">应用</button>
+  <button class="btn primary">保存</button>
+</div>
+
+</body>
+</html>

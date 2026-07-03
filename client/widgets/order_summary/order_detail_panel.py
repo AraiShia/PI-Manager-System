@@ -1052,7 +1052,7 @@ class OrderDetailPanel(QWidget):
                 it.setForeground(QBrush(QColor(COLORS['readonly_fg'])))
                 it.setData(Qt.ItemDataRole.UserRole, 'readonly')
             self._table.setItem(row, col, it)
-
+        '''line_ID = g(item, 'id', '')'''
         # ===== Col 0: 订单日期 =====
         order_date = item.get('order_date') or order.get('order_date', '')
         if order_date:
