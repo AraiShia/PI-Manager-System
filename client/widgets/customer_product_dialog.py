@@ -498,6 +498,11 @@ class CustomerProductDialog(QDialog):
         basic_layout = QFormLayout()
         basic_layout.setSpacing(12)
         
+        # 系统编号（只读，带临时/正式标签）
+        self.system_code_label = QLabel("")
+        self.system_code_label.setStyleSheet("font-weight: bold;")
+        basic_layout.addRow("系统编号:", self.system_code_label)
+
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("请输入产品名称")
         if self.is_edit:
@@ -556,20 +561,36 @@ class CustomerProductDialog(QDialog):
                     if self.category_filter_level2.itemData(i) == category_code:
                         self.category_filter_level2.setCurrentIndex(i)
                         break
-            
-        
+
+            # 2026-07-03 修复：类目两个字段都有内容时锁定，不可再次编辑
+            self._apply_category_lock()
+
+        model_layout = QHBoxLayout()
         self.model_input = QLineEdit()
         self.model_input.setPlaceholderText("默认等于主OE号")
         if self.is_edit:
             self.model_input.setText(self.product.get('customer_model', ''))
-        basic_layout.addRow("客户型号:", self.model_input)
-        
+        model_layout.addWidget(self.model_input)
+        auto_code_btn = QPushButton("自动生成编号")
+        auto_code_btn.setToolTip("根据 客户编号 + 客户型号 自动生成客户产品编号")
+        auto_code_btn.clicked.connect(self._auto_generate_primary_code)
+        model_layout.addWidget(auto_code_btn)
+        basic_layout.addRow("客户型号:", model_layout)
+
         self.color_input = QLineEdit()
         self.color_input.setPlaceholderText("产品颜色")
         if self.is_edit:
             self.color_input.setText(self.product.get('color', ''))
         basic_layout.addRow("颜色:", self.color_input)
-        
+
+        # 填充系统编号与临时/正式状态
+        system_code = self.product.get('system_code', '')
+        is_temp = self.product.get('is_system_code_temp', False)
+        if is_temp:
+            self.system_code_label.setText(f"{system_code} <span style='color:#f59e0b;'>[临时]</span>")
+        else:
+            self.system_code_label.setText(f"{system_code} <span style='color:#10b981;'>[正式]</span>")
+
         basic_group.setLayout(basic_layout)
         scroll_layout.addWidget(basic_group)
         
@@ -876,6 +897,56 @@ class CustomerProductDialog(QDialog):
         except Exception as e:
             print(f"加载主图失败: {e}")
     
+    def _apply_category_lock(self):
+        """类目两个字段都有实际内容时锁定，不可再次编辑"""
+        level1_code = self.category_filter_level1.currentData()
+        level2_code = self.category_filter_level2.currentData()
+        has_content = bool(level1_code and level1_code != 0 and level2_code and level2_code != 0)
+        if has_content:
+            self.category_filter_level1.setEnabled(False)
+            self.category_filter_level2.setEnabled(False)
+            tooltip = "产品类目已设置，不可再次修改"
+            self.category_filter_level1.setToolTip(tooltip)
+            self.category_filter_level2.setToolTip(tooltip)
+            print(f"[客户产品] 类目已锁定: level1={level1_code}, level2={level2_code}")
+
+    def _get_customer_code(self) -> str:
+        """根据当前选中的客户获取客户编号"""
+        customer_id = self.customer_combo.currentData()
+        if not customer_id:
+            return ""
+        for c in self.customers:
+            if c.get("id") == customer_id:
+                return (c.get("customer_code") or "").strip()
+        return ""
+
+    def _auto_generate_primary_code(self):
+        """自动生成客户产品编号：客户编号 + 客户型号"""
+        customer_code = self._get_customer_code()
+        model = self.model_input.text().strip()
+        if not customer_code:
+            QMessageBox.warning(self, "警告", "请先选择客户")
+            return
+        if not model:
+            QMessageBox.warning(self, "警告", "请输入客户型号")
+            return
+        new_code = f"{customer_code}{model}"
+        # 避免重复添加
+        if any(c.get("product_code") == new_code for c in self.codes):
+            QMessageBox.information(self, "提示", f"编号 {new_code} 已存在")
+            return
+        # 新添加的自动设为主编号
+        self.codes.append({
+            "id": None,
+            "product_code": new_code,
+            "is_primary": True,
+        })
+        # 取消其他主编号
+        for c in self.codes[:-1]:
+            c["is_primary"] = False
+        self.refresh_codes_table()
+        QMessageBox.information(self, "成功", f"已生成客户产品编号：{new_code}")
+
     def on_category_level1_changed(self):
         """一级类别变化时更新二级类别选项"""
         parent_code = self.category_filter_level1.currentData()
@@ -979,10 +1050,35 @@ class CustomerProductDialog(QDialog):
             QMessageBox.warning(self, "警告", "请输入产品名称")
             return
         
+        new_category_id = self.category_filter_level2.currentData()
+        previous_category_id = self.product.get('category_id') if self.is_edit else None
+        if new_category_id and new_category_id != 0 and not previous_category_id:
+            reply = QMessageBox.question(
+                self,
+                "确认产品类目",
+                f"产品类目设置为 {self.category_filter_level2.currentText()} 后将无法再次修改，是否确认？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # 2026-07-03 新增：保存时如果没有编号，自动生成 客户编号 + 客户型号
+        if not self.codes:
+            customer_code = self._get_customer_code()
+            model = self.model_input.text().strip()
+            if customer_code and model:
+                self.codes.append({
+                    "id": None,
+                    "product_code": f"{customer_code}{model}",
+                    "is_primary": True,
+                })
+                self.refresh_codes_table()
+
         data = {
             'customer_id': customer_id,
             'product_name': product_name,
-            'category_id': self.category_filter_level2.currentData(),
+            'category_id': new_category_id,
             'customer_model': self.model_input.text().strip(),
             'color': self.color_input.text().strip(),
             'customer_remark': self.remark_input.toPlainText().strip(),
