@@ -137,6 +137,32 @@ def _generate_system_code_with_retry(db: Session, customer_id: int, category_id:
     return None  # 多次重试后仍失败
 
 
+def _generate_temp_system_code(db: Session, customer_code: str) -> str:
+    """
+    生成临时系统编号。
+    格式: TMP-{customer_code}-{6位十进制序号}
+    示例: TMP-A01-000001
+    """
+    prefix = f"TMP-{customer_code}-"
+    existing = db.query(PrdCustomerProduct).filter(
+        PrdCustomerProduct.system_code.like(f"{prefix}%")
+    ).all()
+
+    max_seq = 0
+    for p in existing:
+        if p.system_code and len(p.system_code) > len(prefix):
+            seq_str = p.system_code[len(prefix):]
+            try:
+                seq = int(seq_str)
+                if seq > max_seq:
+                    max_seq = seq
+            except ValueError:
+                pass
+
+    new_seq = max_seq + 1
+    return f"{prefix}{new_seq:06d}"
+
+
 def create_customer_product(db: Session, data: CustomerProductCreate, dept_code: str = 'S') -> PrdCustomerProduct:
     """创建客户产品"""
     # 生成系统产品编号
