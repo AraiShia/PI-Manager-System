@@ -367,6 +367,9 @@ class CustomerProductDialog(QDialog):
         self.oes = []
         self.sub_images = []
         self.main_image_url = None
+
+        # 客户产品编号一次修改状态跟踪
+        self._primary_code_modified = False
         
         if self.is_edit:
             self.setWindowTitle("编辑客户产品")
@@ -451,8 +454,10 @@ class CustomerProductDialog(QDialog):
                         self.sub_images = []
         
         QApplication.restoreOverrideCursor()
-        
+
         self.init_ui()
+        self._auto_fill_primary_code()
+        self._update_modify_code_button_state()
         self.refresh_codes_table()
         self.refresh_oes_table()
     
@@ -651,7 +656,20 @@ class CustomerProductDialog(QDialog):
         # 编号管理
         codes_group = QGroupBox("客户产品编号管理")
         codes_layout = QVBoxLayout()
-        
+
+        # 主编号显示与修改
+        primary_code_layout = QHBoxLayout()
+        self.primary_code_edit = QLineEdit()
+        self.primary_code_edit.setReadOnly(True)
+        self.primary_code_edit.setPlaceholderText("未生成（缺少客户型号）")
+        primary_code_layout.addWidget(self.primary_code_edit, stretch=1)
+
+        self.modify_code_btn = QPushButton("修改编号")
+        self.modify_code_btn.setToolTip("只能修改一次")
+        self.modify_code_btn.clicked.connect(self._on_modify_primary_code)
+        primary_code_layout.addWidget(self.modify_code_btn)
+        codes_layout.addLayout(primary_code_layout)
+
         self.codes_table = QTableWidget()
         self.codes_table.setColumnCount(3)
         self.codes_table.setHorizontalHeaderLabels(["编号", "主编号", "操作"])
@@ -919,6 +937,88 @@ class CustomerProductDialog(QDialog):
             if c.get("id") == customer_id:
                 return (c.get("customer_code") or "").strip()
         return ""
+
+    def _auto_fill_primary_code(self):
+        """自动填充客户产品编号：优先显示已有主编号，否则按客户编号+客户型号生成"""
+        primary = next((c for c in self.codes if c.get("is_primary")), None)
+        if primary:
+            self.primary_code_edit.setText(primary.get("product_code", ""))
+            return
+
+        customer_code = self._get_customer_code()
+        customer_model = self.model_input.text().strip()
+        if customer_code and customer_model:
+            new_code = f"{customer_code}{customer_model}"
+            self.codes.append({
+                "id": None,
+                "product_code": new_code,
+                "is_primary": True,
+            })
+            self.primary_code_edit.setText(new_code)
+            self.refresh_codes_table()
+        else:
+            self.primary_code_edit.setText("")
+
+    def _update_modify_code_button_state(self):
+        """编号只能修改一次，修改后禁用按钮"""
+        self.modify_code_btn.setEnabled(not self._primary_code_modified)
+        if self._primary_code_modified:
+            self.modify_code_btn.setToolTip("编号已修改过，不可再次修改")
+        else:
+            self.modify_code_btn.setToolTip("只能修改一次")
+
+    def _on_modify_primary_code(self):
+        """修改客户产品编号（一次机会）"""
+        if self._primary_code_modified:
+            QMessageBox.information(self, "提示", "客户产品编号只能修改一次")
+            return
+
+        current = self.primary_code_edit.text().strip()
+        new_code, ok = QInputDialog.getText(
+            self,
+            "修改客户产品编号",
+            "请输入新的客户产品编号（只能修改一次，保存后生效）：",
+            text=current,
+        )
+        if not ok:
+            return
+
+        new_code = new_code.strip()
+        if not new_code:
+            QMessageBox.warning(self, "警告", "编号不能为空")
+            return
+        if any(c.get("product_code") == new_code for c in self.codes):
+            QMessageBox.warning(self, "警告", f"编号 {new_code} 已存在")
+            return
+
+        # 二次确认
+        reply = QMessageBox.question(
+            self,
+            "确认修改",
+            f"确定将客户产品编号修改为 {new_code} 吗？\n修改后不可再次修改。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # 替换当前主编号
+        primary_idx = next(
+            (i for i, c in enumerate(self.codes) if c.get("is_primary")), None
+        )
+        if primary_idx is not None:
+            self.codes[primary_idx]["product_code"] = new_code
+        else:
+            self.codes.append({
+                "id": None,
+                "product_code": new_code,
+                "is_primary": True,
+            })
+
+        self.primary_code_edit.setText(new_code)
+        self._primary_code_modified = True
+        self._update_modify_code_button_state()
+        self.refresh_codes_table()
 
     def _auto_generate_primary_code(self):
         """自动生成客户产品编号：客户编号 + 客户型号"""
