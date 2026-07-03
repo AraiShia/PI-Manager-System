@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QLineEdit, QDoubleSpinBox, QPushButton, QFormLayout,
     QMessageBox, QDateEdit, QScrollArea, QWidget, QTextEdit,
-    QFileDialog, QListWidget, QListWidgetItem, QStackedWidget
+    QFileDialog, QListWidget, QListWidgetItem, QStackedWidget,
+    QMenu, QApplication
 )
 from PySide6.QtCore import Qt, QDate, QSize, QThread, Signal
 from PySide6.QtGui import QPixmap, QIcon
@@ -104,7 +105,7 @@ class ProductItemEditDialog(QDialog):
         self.is_purchased = is_purchased
         self.customer_code = customer_code
         self.setWindowTitle("编辑产品")
-        self.resize(768, 1280)
+        self.resize(1024, 1000)
         self._editors = {}
 
         # 2026-07-03 新增：关联客户产品信息（图片、类目、副图）
@@ -487,8 +488,21 @@ class ProductItemEditDialog(QDialog):
     def _add_image_field(self, layout):
         img_layout = QHBoxLayout()
         img_layout.addWidget(QLabel("主图:"))
-        self.image_path_label = QLabel(self.image_path or "无图片")
-        self.image_path_label.setWordWrap(True)
+
+        self.image_path_label = QLabel()
+        '''self.image_path_label.setWordWrap(True)'''
+        self.image_path_label.setStyleSheet("border: 2px dashed #d1d5db; background-color: #f9fafb;")
+        self.image_path_label.setAlignment(Qt.AlignCenter)
+        self.image_path_label.setFixedSize(100, 100)
+        
+        # 2026-07-03 新增：右键菜单查看大图
+        self.image_path_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.image_path_label.customContextMenuRequested.connect(self._show_image_context_menu)
+        
+        if self.image_path:
+            self._load_image_async(self.image_path)
+        else:
+            self.image_path_label.setText("无图片")
         img_layout.addWidget(self.image_path_label)
         upload_btn = QPushButton("上传主图")
         upload_btn.clicked.connect(self._upload_image)
@@ -497,6 +511,88 @@ class ProductItemEditDialog(QDialog):
         clear_btn.clicked.connect(self._clear_image)
         img_layout.addWidget(clear_btn)
         layout.addLayout(img_layout)
+    def _load_image_async(self, url):
+        """异步加载主图"""
+        if not hasattr(self, 'image_path_label') or not self.image_path_label:
+            return
+        try:
+            if url.startswith("http"):
+                import urllib.request
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = response.read()
+                pixmap = QPixmap()
+                pixmap.loadFromData(data)
+            else:
+                pixmap = QPixmap(url)
+            
+            if not pixmap.isNull():
+                scaled = pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.image_path_label.setPixmap(scaled)
+                self.image_path_label.setText("")
+            else:
+                self.image_path_label.setText("加载失败")
+        except Exception as e:
+            print(f"[ERROR] 加载主图失败: {e}")
+            self.image_path_label.setText("加载失败")
+
+    def _show_image_context_menu(self, pos):
+        """图片右键菜单：查看大图"""
+        if not self.image_path:
+            return
+        
+        menu = QMenu(self)
+        view_action = menu.addAction("查看大图")
+        action = menu.exec(self.image_path_label.mapToGlobal(pos))
+        if action == view_action:
+            self._show_full_size_image()
+
+    def _show_full_size_image(self):
+        """在新窗口中显示大图"""
+        if not self.image_path:
+            return
+        
+        try:
+            # 加载原图
+            if self.image_path.startswith("http"):
+                import urllib.request
+                req = urllib.request.Request(self.image_path, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = response.read()
+                pixmap = QPixmap()
+                pixmap.loadFromData(data)
+            else:
+                pixmap = QPixmap(self.image_path)
+            
+            if pixmap.isNull():
+                QMessageBox.warning(self, "错误", "无法加载图片")
+                return
+            
+            # 创建大图窗口
+            dialog = QDialog(self)
+            dialog.setWindowTitle("查看大图")
+            layout = QVBoxLayout(dialog)
+            
+            # 计算适应屏幕的尺寸
+            screen = QApplication.primaryScreen()
+            screen_rect = screen.availableGeometry()
+            max_w = min(pixmap.width(), screen_rect.width() - 100)
+            max_h = min(pixmap.height(), screen_rect.height() - 100)
+            scaled = pixmap.scaled(max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            
+            label = QLabel()
+            label.setPixmap(scaled)
+            label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(label)
+            
+            # 关闭按钮
+            close_btn = QPushButton("关闭")
+            close_btn.clicked.connect(dialog.close)
+            layout.addWidget(close_btn)
+            
+            dialog.exec()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"加载图片失败: {e}")
 
     def _add_sub_images_field(self, layout):
         """添加附图（副图）编辑区域"""
