@@ -54,3 +54,14 @@ def test_response_includes_temp_flag(db, customer_factory):
     update_customer_product(db, cp.id, CustomerProductUpdate(category_id="01"))
     resp2 = _build_response(get_customer_product(db, cp.id), db)
     assert resp2.is_system_code_temp is False
+
+
+def test_create_multiple_products_have_unique_temp_codes(db, customer_factory):
+    customer = customer_factory(customer_code="E05")
+    codes = set()
+    for i in range(5):
+        cp = create_customer_product(db, CustomerProductCreate(customer_id=customer.id, product_name=f"产品{i}"))
+        codes.add(cp.system_code)
+    assert len(codes) == 5
+    for code in codes:
+        assert code.startswith("TMP-E05-")

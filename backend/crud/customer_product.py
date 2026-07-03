@@ -165,37 +165,61 @@ def _generate_temp_system_code(db: Session, customer_code: str) -> str:
 
 def create_customer_product(db: Session, data: CustomerProductCreate, dept_code: str = 'S') -> PrdCustomerProduct:
     """创建客户产品"""
+    from sqlalchemy.exc import IntegrityError
+
     # 生成临时系统产品编号（类目锁定后重新生成正式编号）
     customer = db.query(CrmCustomer).filter(CrmCustomer.id == data.customer_id).first()
     customer_code = customer.customer_code if customer else None
-    system_code = _generate_temp_system_code(db, customer_code) if customer_code else None
 
     # 处理副图（存储为JSON）
     sub_images_json = json.dumps(data.sub_images) if data.sub_images else None
 
-    customer_product = PrdCustomerProduct(
-        customer_id=data.customer_id,
-        system_code=system_code,  # 自动生成的系统编号
-        product_name=data.product_name,
-        customer_model=data.customer_model,
-        color=data.color,
-        customer_remark=data.customer_remark,
-        category_id=data.category_id,
-        price_usd=data.price_usd,
-        price_rmb=data.price_rmb,
-        detail_desc=data.detail_desc,
-        brand=data.brand,
-        specifications=data.specifications,
-        image_url=data.image_url,
-        sub_images=sub_images_json,
-        carton_length_cm=data.carton_length_cm,
-        carton_width_cm=data.carton_width_cm,
-        carton_height_cm=data.carton_height_cm,
-        units_per_carton=data.units_per_carton,
-        gross_weight_kg=data.gross_weight_kg,
-    )
-    db.add(customer_product)
-    db.flush()
+    # 构建基础字段，系统编号在重试循环中填充
+    base_kwargs = {
+        'customer_id': data.customer_id,
+        'product_name': data.product_name,
+        'customer_model': data.customer_model,
+        'color': data.color,
+        'customer_remark': data.customer_remark,
+        'category_id': data.category_id,
+        'price_usd': data.price_usd,
+        'price_rmb': data.price_rmb,
+        'detail_desc': data.detail_desc,
+        'brand': data.brand,
+        'specifications': data.specifications,
+        'image_url': data.image_url,
+        'sub_images': sub_images_json,
+        'carton_length_cm': data.carton_length_cm,
+        'carton_width_cm': data.carton_width_cm,
+        'carton_height_cm': data.carton_height_cm,
+        'units_per_carton': data.units_per_carton,
+        'gross_weight_kg': data.gross_weight_kg,
+    }
+
+    # 带重试的临时系统编号分配，处理并发冲突
+    customer_product = None
+    max_retries = 10
+    for attempt in range(max_retries):
+        system_code = _generate_temp_system_code(db, customer_code) if customer_code else None
+        customer_product = PrdCustomerProduct(
+            system_code=system_code,
+            **base_kwargs,
+        )
+        db.add(customer_product)
+        try:
+            db.flush()
+            break
+        except IntegrityError as e:
+            db.rollback()
+            # 仅当确定是 system_code 唯一冲突时才重试，其他错误直接抛出
+            if 'system_code' not in str(e).lower() and 'unique' not in str(e).lower():
+                raise
+            if attempt == max_retries - 1:
+                raise
+            customer_product = None
+
+    if customer_product is None:
+        return None
 
     # 添加编号（如果有）
     if data.codes:
