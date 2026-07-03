@@ -319,13 +319,26 @@ def update_customer_product(db: Session, product_id: int, data: CustomerProductU
     customer_product = get_customer_product(db, product_id)
     if not customer_product:
         return None
-    
+
     update_data = data.model_dump(exclude_unset=True)
-    
+
+    # 检测类目从空到非空的首次锁定，临时编号转正式编号
+    old_category_id = customer_product.category_id
+    new_category_id = update_data.get('category_id')
+    if (not old_category_id and new_category_id
+            and customer_product.system_code
+            and customer_product.system_code.startswith("TMP-")):
+        formal_code = _generate_system_code_with_retry(
+            db, customer_product.customer_id, new_category_id, 'S'
+        )
+        if formal_code:
+            customer_product.system_code = formal_code
+        # 若生成失败，保持临时编号，继续后续更新
+
     # 处理副图JSON转换
     if 'sub_images' in update_data and update_data['sub_images'] is not None:
         update_data['sub_images'] = json.dumps(update_data['sub_images'])
-    
+
     for key, value in update_data.items():
         setattr(customer_product, key, value)
 
