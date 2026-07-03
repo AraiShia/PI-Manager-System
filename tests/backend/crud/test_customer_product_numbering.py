@@ -4,6 +4,7 @@ from crud.customer_product import (
     update_customer_product,
     get_customer_product,
 )
+from routers.customer_product import _build_response
 from models.customer_product import PrdCustomerProduct
 from schemas.customer_product import CustomerProductCreate, CustomerProductUpdate
 
@@ -42,3 +43,14 @@ def test_update_converts_temp_to_formal_code(db, customer_factory):
     assert updated is not None
     assert not updated.system_code.startswith("TMP-")
     assert updated.category_id == "01"
+
+
+def test_response_includes_temp_flag(db, customer_factory):
+    customer = customer_factory(customer_code="D04")
+    cp = create_customer_product(db, CustomerProductCreate(customer_id=customer.id))
+    resp = _build_response(cp, db)
+    assert resp.is_system_code_temp is True
+
+    update_customer_product(db, cp.id, CustomerProductUpdate(category_id="01"))
+    resp2 = _build_response(get_customer_product(db, cp.id), db)
+    assert resp2.is_system_code_temp is False

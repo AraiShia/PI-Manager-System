@@ -89,6 +89,10 @@ def _build_response(customer_product, db: Session):
         id=customer_product.id,
         customer_id=customer_product.customer_id,
         system_code=customer_product.system_code,  # ✨新增
+        is_system_code_temp=(
+            customer_product.system_code is not None
+            and customer_product.system_code.startswith("TMP-")
+        ),
         product_name=customer_product.product_name,
         customer_model=customer_product.customer_model,
         color=customer_product.color,

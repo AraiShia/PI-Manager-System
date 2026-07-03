@@ -116,6 +116,9 @@ class CustomerProductResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
+    # 系统编号状态
+    is_system_code_temp: bool = False  # 是否为临时系统编号
+
     # 关联数据
     customer_name: Optional[str] = None  # 客户名称
     code_count: Optional[int] = 0  # 编号数量
