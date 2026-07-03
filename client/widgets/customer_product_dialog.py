@@ -1175,6 +1175,19 @@ class CustomerProductDialog(QDialog):
                 })
                 self.refresh_codes_table()
 
+        # 2026-07-03 新增：保存前二次确认客户产品编号
+        primary_code = next((c.get("product_code", "") for c in self.codes if c.get("is_primary")), "")
+        if primary_code:
+            reply = QMessageBox.question(
+                self,
+                "确认客户产品编号",
+                f"客户产品编号将保存为：{primary_code}\n确认继续保存吗？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
         data = {
             'customer_id': customer_id,
             'product_name': product_name,
