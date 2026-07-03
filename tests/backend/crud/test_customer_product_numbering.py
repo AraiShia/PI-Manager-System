@@ -1,5 +1,6 @@
-from crud.customer_product import _generate_temp_system_code
+from crud.customer_product import _generate_temp_system_code, create_customer_product
 from models.customer_product import PrdCustomerProduct
+from schemas.customer_product import CustomerProductCreate
 
 
 def test_generate_temp_system_code(db, customer_factory):
@@ -14,3 +15,10 @@ def test_generate_temp_system_code(db, customer_factory):
     code2 = _generate_temp_system_code(db, customer.customer_code)
     assert code2.startswith("TMP-A01-")
     assert code1 != code2
+
+
+def test_create_customer_product_uses_temp_code(db, customer_factory):
+    customer = customer_factory(customer_code="B02")
+    data = CustomerProductCreate(customer_id=customer.id, product_name="测试产品")
+    cp = create_customer_product(db, data)
+    assert cp.system_code.startswith("TMP-B02-")

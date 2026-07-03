@@ -165,8 +165,10 @@ def _generate_temp_system_code(db: Session, customer_code: str) -> str:
 
 def create_customer_product(db: Session, data: CustomerProductCreate, dept_code: str = 'S') -> PrdCustomerProduct:
     """创建客户产品"""
-    # 生成系统产品编号
-    system_code = _generate_system_code(db, data.customer_id, data.category_id, dept_code)
+    # 生成临时系统产品编号（类目锁定后重新生成正式编号）
+    customer = db.query(CrmCustomer).filter(CrmCustomer.id == data.customer_id).first()
+    customer_code = customer.customer_code if customer else None
+    system_code = _generate_temp_system_code(db, customer_code) if customer_code else None
 
     # 处理副图（存储为JSON）
     sub_images_json = json.dumps(data.sub_images) if data.sub_images else None
