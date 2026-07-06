@@ -1,0 +1,16 @@
+# PI Manager Backend Docker Compose
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: pi-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    environment:
+      - DATABASE_URL=sqlite:///data/pi_manager.db
+      - CORS_ORIGINS=https://piapi.wakabashia.tj.cn
+    restart: unless-stopped

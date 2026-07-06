@@ -38,3 +38,8 @@ build/
 *.zip
 client/TESTORDER.xlsx
 image.png
+
+# 已迁移到独立仓库的模块
+frontend/
+docs/
+*.ps1
