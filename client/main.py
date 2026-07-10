@@ -77,7 +77,7 @@ except ImportError:
     HAS_WEB_CONTAINER = False
     WebContainerView = None
 
-from web_container.routes import TAB_ROUTES
+# TAB_ROUTES 使用延迟导入，避免与 dialogs/pi.py → main 的循环导入冲突
 
 # 测试模块（可选）
 try:
@@ -1885,6 +1885,7 @@ class MainWindow(QMainWindow):
 
         self._web_view = self._create_web_content()
         content_layout.addWidget(self._web_view)
+        from web_container.routes import TAB_ROUTES
         self._web_view.navigate_to(TAB_ROUTES['products'])
 
         content.setLayout(content_layout)
@@ -1908,6 +1909,7 @@ class MainWindow(QMainWindow):
         return web_view
 
     def switch_tab(self, key):
+        from web_container.routes import TAB_ROUTES
         path = TAB_ROUTES.get(key)
         if path and self._web_view is not None and hasattr(self._web_view, 'navigate_to'):
             self._web_view.navigate_to(path)
