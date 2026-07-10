@@ -69,6 +69,16 @@ from widgets.pi_management.pi_history_tab import PiHistoryTab
 from widgets.settings_dialog import SettingsDialog
 from services import OrderService
 
+# Web 容器模块（QWebEngineView + QWebChannel）
+try:
+    from web_container import WebContainerView
+    HAS_WEB_CONTAINER = True
+except ImportError:
+    HAS_WEB_CONTAINER = False
+    WebContainerView = None
+
+from client.web_container.routes import TAB_ROUTES
+
 # 测试模块（可选）
 try:
     from test_customer_reply import CustomerReplyTester
@@ -1795,7 +1805,7 @@ class MainWindow(QMainWindow):
             ("客户付款", "customer_payment"),
             ("供应商付款", "supplier_payment"),
             ("库存管理", "inventory"),
-            ("订单总表", "order_summary")
+            ("订单总表", "order_summary"),
         ]
 
         for name, key in tabs:
@@ -1873,66 +1883,37 @@ class MainWindow(QMainWindow):
         sidebar.setLayout(sidebar_layout)
         content_layout.addWidget(sidebar)
 
-        self.content_stack = QStackedWidget()
+        self._web_view = self._create_web_content()
+        content_layout.addWidget(self._web_view)
+        self._web_view.navigate_to(TAB_ROUTES['products'])
 
-        self.products_widget = self.create_products_tab()
-        self.customers_widget = self.create_customers_tab()
-        self.suppliers_widget = self.create_suppliers_tab()
-        self.quotes_widget = self.create_quotes_tab()
-        self.pi_widget = self.create_pi_tab()
-        self.purchase_widget = self.create_purchase_tab()
-        self.shipment_widget = self.create_shipment_tab()
-        self.customer_payment_widget = self.create_customer_payment_tab()
-        self.supplier_payment_widget = self.create_supplier_payment_tab()
-        self.inventory_widget = self.create_inventory_tab()
-        self.order_summary_widget = self.create_order_summary_tab()
-
-        self.content_stack.addWidget(self.products_widget)
-        self.content_stack.addWidget(self.customers_widget)
-        self.content_stack.addWidget(self.suppliers_widget)
-        self.content_stack.addWidget(self.quotes_widget)
-        self.content_stack.addWidget(self.pi_widget)
-        self.content_stack.addWidget(self.purchase_widget)
-        self.content_stack.addWidget(self.shipment_widget)
-        self.content_stack.addWidget(self.customer_payment_widget)
-        self.content_stack.addWidget(self.supplier_payment_widget)
-        self.content_stack.addWidget(self.inventory_widget)
-        self.content_stack.addWidget(self.order_summary_widget)
-
-        content_layout.addWidget(self.content_stack)
         content.setLayout(content_layout)
         main_layout.addWidget(content)
 
         central_widget.setLayout(main_layout)
 
-    def switch_tab(self, key):
-        print(f"DEBUG - switch_tab called with key: {key}")
-        tab_map = {"products": 0, "customers": 1, "suppliers": 2, "quotes": 3, "pi": 4, "purchase": 5,
-                   "shipment": 6, "customer_payment": 7, "supplier_payment": 8, "inventory": 9, "order_summary": 10}
-        self.content_stack.setCurrentIndex(tab_map.get(key, 0))
-        for k, btn in self.tab_buttons.items():
-            btn.setChecked(k == key)
-        
-        # 切换到PI标签时强制刷新（清除缓存）
-        if key == "pi":
-            print("DEBUG - Loading PI orders...")
-            self.load_pi_orders_async(force_refresh=True)
+    def _create_web_content(self):
+        """创建 Web 容器内容区（单一 QWebEngineView）"""
+        from config.local_settings_manager import get_frontend_url
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        if HAS_WEB_CONTAINER:
+            web_view = WebContainerView(get_frontend_url(), self)
         else:
-            refresh_map = {
-                "products": self.load_products_async,
-                "customers": self.load_customers_async,
-                "suppliers": self.load_suppliers_async,
-                "quotes": self.load_quotes_async,
-                "purchase": self.load_purchase_orders_async,
-                "shipment": self.load_shipments_async,
-                "customer_payment": self.load_customer_payments_async,
-                "supplier_payment": self.load_supplier_payments_async,
-                "inventory": self.load_inventories_async,
-                "order_summary": self._update_order_summary_view,
-            }
-            if key in refresh_map:
-                refresh_map[key]()
-    
+            web_view = QLabel("Web 容器模块不可用（缺少 PySide6 QtWebEngine 组件）")
+            web_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            web_view.setStyleSheet("color: #666; font-size: 14px;")
+        layout.addWidget(web_view)
+        return web_view
+
+    def switch_tab(self, key):
+        path = TAB_ROUTES.get(key)
+        if path and self._web_view is not None and hasattr(self._web_view, 'navigate_to'):
+            self._web_view.navigate_to(path)
+        for name, button in self.tab_buttons.items():
+            button.setChecked(name == key)
+
     def _load_async(self, api_method, update_method, error_msg="加载失败", loading_msg=None):
         """通用异步加载方法，使用QThread确保UI在主线程更新"""
         from PySide6.QtCore import QThread
@@ -2215,7 +2196,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(toolbar)
 
         self.products_table = QTableWidget()
-        self.products_table.setColumnCount(14)
+        self.products_table.setColumnCount(15)
         self.products_table.setHorizontalHeaderLabels([
             "", "客户产品编号", "系统编号", "OE号", "图片", "产品名称",
             "客户型号", "客户", "类别", "颜色", "品牌", "USD", "RMB", "规格", "操作"
@@ -2235,7 +2216,7 @@ class MainWindow(QMainWindow):
         self.products_table.setColumnWidth(11, 80)  # USD
         self.products_table.setColumnWidth(12, 80)  # RMB
         self.products_table.setColumnWidth(13, 150)  # 规格
-        self.products_table.setColumnHidden(14, True)  # ID 列隐藏
+        self.products_table.setColumnWidth(14, 70)  # 操作
         self.products_table.verticalHeader().setDefaultSectionSize(70)
         self.products_table.doubleClicked.connect(self.on_product_double_click)
         self.setup_table_context_menu(self.products_table, ["", "客户产品编号", "系统编号", "OE号", "图片", "产品名称", "客户型号", "客户", "类别", "颜色", "品牌", "USD", "RMB", "规格", "操作"])
@@ -3589,6 +3570,27 @@ class MainWindow(QMainWindow):
         self._order_summary_tab.get_service().data_loaded.connect(self._on_service_data_loaded)
         
         return self._order_summary_tab
+
+    def _create_web_order_tab(self):
+        """创建 Web 订单 Tab - 使用 QWebEngineView 加载 Vue 前端"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        if HAS_WEB_CONTAINER:
+            # Web 容器：加载 Vue 前端
+            from config import Config
+            remote_url = getattr(Config, 'WEB_FRONTEND_URL', 'http://localhost:5173')
+            self._web_view = WebContainerView(remote_url, self)
+            layout.addWidget(self._web_view)
+        else:
+            # 模块不可用，显示提示
+            hint = QLabel("Web 容器模块不可用（缺少 PySide6 QtWebEngine 组件）")
+            hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            hint.setStyleSheet("color: #666; font-size: 14px;")
+            layout.addWidget(hint)
+
+        return widget
     
     def _on_service_data_loaded(self, orders):
         """订单数据加载完成，更新兼容属性"""
@@ -3954,6 +3956,10 @@ class MainWindow(QMainWindow):
             detail = self.api_client.get_pi_detail(order_id)
             if detail:
                 self._show_order_detail(detail)
+<<<<<<< HEAD
+=======
+                # 切换到订单总表 Tab，让用户看到详情
+                self.switch_tab("order_summary")
                 print(f"[INFO] 已打开新订单详情: PI_ID={order_id}")
             else:
                 print(f"[WARN] 无法获取新订单详情: PI_ID={order_id}")
@@ -4587,6 +4593,7 @@ class MainWindow(QMainWindow):
                 return lambda: self.edit_product(product)
 
             action_widget = QWidget()
+            action_widget.setProperty("product_id", product_id)
             action_layout = QHBoxLayout()
             action_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -4810,8 +4817,6 @@ class MainWindow(QMainWindow):
                 category_code = None
         
         try:
-            # 2026-06-14 修复：ID 列在 col 14（与 _populate_products_table 对齐）
-            self.products_table.setColumnHidden(14, True)
             print(f"搜索参数 - 关键词: '{keyword}', 类别代码: {category_code}")
             # 2026-06-14 改用 category_code 参数（前端下拉框存 code 字符串）
             products = self.api_client.search_products(keyword, category_code=category_code)
@@ -4956,11 +4961,9 @@ class MainWindow(QMainWindow):
                 display_spec = (specifications[:20] + '...') if len(specifications) > 20 else (specifications or '-')
                 self.products_table.setItem(row, 13, QTableWidgetItem(display_spec))
 
-                # 14: 隐藏的产品ID（与 _populate_products_table 一致）
-                self.products_table.setItem(row, 14, QTableWidgetItem(str(product_id)))
-
-                # 14: 编辑按钮（与 _populate_products_table 一致）
+                # 14: 操作区 - 编辑按钮（与 _populate_products_table 一致）
                 edit_btn = QPushButton("编辑")
+                edit_btn.setProperty("product_id", product_id)
                 edit_btn.setFixedWidth(50)
                 edit_btn.clicked.connect(lambda _, prod=p: self.edit_product(prod))
                 self.products_table.setCellWidget(row, 14, edit_btn)
@@ -5014,10 +5017,18 @@ class MainWindow(QMainWindow):
         for row in range(self.products_table.rowCount()):
             checkbox = self.products_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                # 从隐藏的第13列获取产品ID
-                id_item = self.products_table.item(row, 13)
-                if id_item:
-                    selected_ids.append(int(id_item.text()))
+                # 从第14列操作区获取产品ID
+                action_widget = self.products_table.cellWidget(row, 14)
+                product_id = None
+                if action_widget:
+                    product_id = action_widget.property("product_id")
+                if not product_id:
+                    # 兜底：从操作区按钮查找
+                    btn = self.products_table.cellWidget(row, 14)
+                    if isinstance(btn, QPushButton):
+                        product_id = btn.property("product_id")
+                if product_id:
+                    selected_ids.append(int(product_id))
         return selected_ids
 
     def batch_toggle_product_status(self):
@@ -6898,16 +6909,19 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass  # 系统编号查询失败，fallback 到 ID
 
-        # 方式2: fallback 通过产品ID获取（第14列隐藏ID）
+        # 方式2: fallback 通过产品ID获取（第14列操作区存储 product_id）
         if not product:
-            id_item = self.products_table.item(row, 14)
-            if id_item:
-                product_id = id_item.text().strip()
-                if product_id and product_id.lstrip('-').isdigit():
-                    try:
-                        product = self.api_client.get(f"/customer-products/{product_id}")
-                    except Exception:
-                        pass
+            action_widget = self.products_table.cellWidget(row, 14)
+            product_id = None
+            if action_widget:
+                product_id = action_widget.property("product_id")
+                if not product_id and isinstance(action_widget, QPushButton):
+                    product_id = action_widget.property("product_id")
+            if product_id:
+                try:
+                    product = self.api_client.get(f"/customer-products/{product_id}")
+                except Exception:
+                    pass
 
         if not product:
             QMessageBox.warning(self, "错误", "无法获取产品信息")
