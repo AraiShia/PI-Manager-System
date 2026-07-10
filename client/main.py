@@ -77,7 +77,7 @@ except ImportError:
     HAS_WEB_CONTAINER = False
     WebContainerView = None
 
-from client.web_container.routes import TAB_ROUTES
+from web_container.routes import TAB_ROUTES
 
 # 测试模块（可选）
 try:
