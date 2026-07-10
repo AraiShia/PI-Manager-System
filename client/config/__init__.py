@@ -27,8 +27,8 @@ if os.path.exists(_config_py_path):
 else:
     # 如果不存在，创建一个默认的 Config 类
     class Config:
-        API_BASE_URL = "piapi.wakabashia.tj.cn"
-        APP_VERSION = "v1.0.0.28"
+        API_BASE_URL = "https://piapi.wakabashia.tj.cn"
+        APP_VERSION = "v1.0.1.5"
         UPDATE_SERVER_URL = "https://updateservice.wakabashia.tj.cn"
         AUTO_CHECK_UPDATE = True
         # 2026-06-29 修复：兜底 Config 缺少 MACHINE_DEPT_MAP / DEPARTMENT_DB_CONFIG，

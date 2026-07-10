@@ -38,14 +38,18 @@ hiddenimports += collect_submodules('dialogs')
 hiddenimports += collect_submodules('services')
 hiddenimports += collect_submodules('utils')
 hiddenimports += collect_submodules('widgets')
+hiddenimports += collect_submodules('web_container')
 
 # PySide6 数据文件
 datas = []
 
 # 收集配置文件
-config_path = os.path.join(client_dir, 'config', 'local_settings.json')
-if os.path.exists(config_path):
-    datas.append((config_path, 'config'))
+config_dir = os.path.join(client_dir, 'config')
+if os.path.exists(config_dir):
+    datas.append((config_dir, 'config'))
+version_path = os.path.join(client_dir, 'version.json')
+if os.path.exists(version_path):
+    datas.append((version_path, '.'))
 
 a = Analysis(
     ['main.py'],

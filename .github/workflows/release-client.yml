@@ -59,7 +59,15 @@ jobs:
           $configPath = "client/config.py"
           $content = Get-Content $configPath -Raw -Encoding utf8
           $content = $content -replace 'APP_VERSION\s*=\s*"v?[\d.]+"', "APP_VERSION = `"v$version`""
+          $content = $content -replace 'API_BASE_URL\s*=\s*os\.environ\.get\("PI_API_URL",\s*"[^"]+"\)', 'API_BASE_URL = os.environ.get("PI_API_URL", "https://piapi.wakabashia.tj.cn")'
           Set-Content -Path $configPath -Value $content -Encoding utf8
+
+          # 更新打包环境可能使用的 config 包兜底配置
+          $configInitPath = "client/config/__init__.py"
+          $configInit = Get-Content $configInitPath -Raw -Encoding utf8
+          $configInit = $configInit -replace 'API_BASE_URL\s*=\s*"[^"]+"', 'API_BASE_URL = "https://piapi.wakabashia.tj.cn"'
+          $configInit = $configInit -replace 'APP_VERSION\s*=\s*"v?[\d.]+"', "APP_VERSION = `"v$version`""
+          Set-Content -Path $configInitPath -Value $configInit -Encoding utf8
           
           # 更新客户端 version.json
           if (Test-Path "client/version.json") {

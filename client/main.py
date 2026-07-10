@@ -3582,7 +3582,7 @@ class MainWindow(QMainWindow):
         if HAS_WEB_CONTAINER:
             # Web 容器：加载 Vue 前端
             from config import Config
-            remote_url = getattr(Config, 'WEB_FRONTEND_URL', 'piapi.wakabashia.tj.cn')
+            remote_url = getattr(Config, 'WEB_FRONTEND_URL', 'https://piapi.wakabashia.tj.cn')
             self._web_view = WebContainerView(remote_url, self)
             layout.addWidget(self._web_view)
         else:
