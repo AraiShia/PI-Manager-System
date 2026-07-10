@@ -3347,6 +3347,8 @@ class MainWindow(QMainWindow):
     def load_data(self):
         """异步加载所有数据，避免阻塞UI"""
         self.update_user_info()
+        if hasattr(self, '_web_view') and self._web_view is not None:
+            return
         
         # 显示预加载状态提示
         self._show_loading_tip("正在同步服务器数据...")
