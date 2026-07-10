@@ -3956,8 +3956,6 @@ class MainWindow(QMainWindow):
             detail = self.api_client.get_pi_detail(order_id)
             if detail:
                 self._show_order_detail(detail)
-<<<<<<< HEAD
-=======
                 # 切换到订单总表 Tab，让用户看到详情
                 self.switch_tab("order_summary")
                 print(f"[INFO] 已打开新订单详情: PI_ID={order_id}")
