@@ -207,8 +207,3 @@ def save_profit_margin(margin):
 def save_exchange_rate(rate):
     """保存汇率"""
     return set_setting("exchange_rate", rate)
-
-
-def get_frontend_url():
-    """获取前端 Web 服务地址"""
-    return get_setting("frontend_url", "https://piapi.wakabashia.tj.cn")

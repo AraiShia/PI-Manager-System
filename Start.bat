@@ -64,8 +64,8 @@ start "" py main.py
 echo.
 echo ======================================
 echo    Started!
-echo    Backend: http://localhost:8000
-echo    API Docs: http://localhost:8000/docs
+echo    Backend: https://piapi.wakabashia.tj.cn
+echo    API Docs: https://piapi.wakabashia.tj.cn/docs
 echo ======================================
 echo.
 echo Press any key to exit...
