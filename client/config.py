@@ -2,7 +2,7 @@
 import os
 
 class Config:
-    API_BASE_URL = os.environ.get("PI_API_URL", "http://localhost:8000")
+    API_BASE_URL = os.environ.get("PI_API_URL", "https://piapi.wakabashia.tj.cn")
 
     # 自动更新配置
     APP_VERSION = "v1.0.0.28"  # 客户端版本号

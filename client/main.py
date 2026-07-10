@@ -77,7 +77,7 @@ except ImportError:
     HAS_WEB_CONTAINER = False
     WebContainerView = None
 
-from client.web_container.routes import TAB_ROUTES
+from web_container.routes import TAB_ROUTES
 
 # 测试模块（可选）
 try:
@@ -1895,8 +1895,8 @@ class MainWindow(QMainWindow):
     def _create_web_content(self):
         """创建 Web 容器内容区（单一 QWebEngineView）"""
         from config.local_settings_manager import get_frontend_url
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        self._web_container_widget = QWidget()
+        layout = QVBoxLayout(self._web_container_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         if HAS_WEB_CONTAINER:
             web_view = WebContainerView(get_frontend_url(), self)
@@ -3580,7 +3580,7 @@ class MainWindow(QMainWindow):
         if HAS_WEB_CONTAINER:
             # Web 容器：加载 Vue 前端
             from config import Config
-            remote_url = getattr(Config, 'WEB_FRONTEND_URL', 'http://localhost:5173')
+            remote_url = getattr(Config, 'WEB_FRONTEND_URL', 'https://piapi.wakabashia.tj.cn')
             self._web_view = WebContainerView(remote_url, self)
             layout.addWidget(self._web_view)
         else:
@@ -3956,8 +3956,6 @@ class MainWindow(QMainWindow):
             detail = self.api_client.get_pi_detail(order_id)
             if detail:
                 self._show_order_detail(detail)
-<<<<<<< HEAD
-=======
                 # 切换到订单总表 Tab，让用户看到详情
                 self.switch_tab("order_summary")
                 print(f"[INFO] 已打开新订单详情: PI_ID={order_id}")

@@ -13,7 +13,7 @@ IMAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
 # 默认图片路径
-DEFAULT_IMAGE_URL = "http://localhost:8000/images/default_product.png"
+DEFAULT_IMAGE_URL = "https://piapi.wakabashia.tj.cn/images/default_product.png"
 
 
 @router.post("/upload")
@@ -38,7 +38,7 @@ async def upload_image(file: UploadFile = File(...), db: Session = Depends(get_d
         buffer.write(content)
     
     # 构建URL
-    file_url = f"http://localhost:8000/images/{filename}"
+    file_url = f"https://piapi.wakabashia.tj.cn/images/{filename}"
     
     return {
         "url": file_url,
@@ -72,7 +72,7 @@ async def upload_multiple_images(files: list[UploadFile] = File(...), db: Sessio
             buffer.write(content)
         
         # 构建URL
-        file_url = f"http://localhost:8000/images/{filename}"
+        file_url = f"https://piapi.wakabashia.tj.cn/images/{filename}"
         uploaded_files.append(file_url)
     
     return {

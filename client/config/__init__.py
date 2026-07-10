@@ -27,7 +27,7 @@ if os.path.exists(_config_py_path):
 else:
     # 如果不存在，创建一个默认的 Config 类
     class Config:
-        API_BASE_URL = "http://localhost:8000"
+        API_BASE_URL = "https://piapi.wakabashia.tj.cn"
         APP_VERSION = "v1.0.0.28"
         UPDATE_SERVER_URL = "https://updateservice.wakabashia.tj.cn"
         AUTO_CHECK_UPDATE = True
