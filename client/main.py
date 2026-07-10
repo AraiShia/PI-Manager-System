@@ -1896,8 +1896,8 @@ class MainWindow(QMainWindow):
     def _create_web_content(self):
         """创建 Web 容器内容区（单一 QWebEngineView）"""
         from config.local_settings_manager import get_frontend_url
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        self._web_container_widget = QWidget()
+        layout = QVBoxLayout(self._web_container_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         if HAS_WEB_CONTAINER:
             web_view = WebContainerView(get_frontend_url(), self)
