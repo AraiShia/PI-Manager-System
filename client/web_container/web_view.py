@@ -1,8 +1,8 @@
 """QWebEngineView 封装：Vue SPA 容器"""
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QUrl, QEvent
-from PySide6.QtGui import QContextMenuEvent
+from PySide6.QtCore import QUrl
 from .channel_bridge import NativeBridge
 from .native_api import NativeAPI
 
@@ -30,12 +30,13 @@ class WebContainerView(QWebEngineView):
                 print(f"[WebContainer] 读取前端地址失败: {e}")
                 self.remote_url = "https://piapi.wakabashia.tj.cn"
 
-        print("[WebContainer] eventFilter will suppress native context menu")
+        # 用 Qt 官方 API 禁用原生菜单，但页面 JS 的 contextmenu 事件不受影响
+        print("[WebContainer] disabling native context menu via Qt API")
+        self.page().settings().setAttribute(
+            QWebEngineSettings.WebAttribute.ContextMenuEnabled, False
+        )
 
-        # 在 page 上安装 eventFilter，拦截 QEvent.Type.ContextMenu
-        # 在 QWebEnginePage 层级捕捉并 accept()，比 QWebEngineView 更早拦截 Chromium 菜单
-        self.page().installEventFilter(self)
-
+        # 保留默认 page，安装自定义 channel
         self.channel = QWebChannel(self)
         self.page().setWebChannel(self.channel)
 
@@ -44,23 +45,6 @@ class WebContainerView(QWebEngineView):
         self.channel.registerObject('nativeBridge', self._native_bridge)
 
         self.load(QUrl(self.remote_url))
-
-    def eventFilter(self, watched, event: QEvent) -> bool:
-        """在 QWebEnginePage 层级拦截 ContextMenu 事件，阻止 Chromium 原生菜单弹出。
-
-        QWebEnginePage 处理 ContextMenu 比 QWebEngineView 更早，
-        在此处 accept() 能在 Chromium 弹出菜单前拦截，
-        但仍允许事件继续派发到页面 JS，前端 contextmenu 监听器可收到。
-        """
-        if event.type() == QEvent.Type.ContextMenu:
-            ev = event
-            print(
-                f"[WebContainer] eventFilter ContextMenu at "
-                f"{ev.globalPos().x()},{ev.globalPos().y()} reason={ev.reason()}"
-            )
-            ev.accept()
-            return True  # 拦截，不传递给 Chromium
-        return super().eventFilter(watched, event)
 
     def navigate_to(self, path: str):
         """路由跳转"""
