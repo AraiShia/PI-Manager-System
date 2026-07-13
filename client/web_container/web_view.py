@@ -1,7 +1,7 @@
 """QWebEngineView 封装：Vue SPA 容器"""
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QUrl, QObject, Qt
+from PySide6.QtCore import QUrl, QObject
 from .channel_bridge import NativeBridge
 from .native_api import NativeAPI
 
@@ -29,9 +29,9 @@ class WebContainerView(QWebEngineView):
                 print(f"[WebContainer] 读取前端地址失败: {e}")
                 self.remote_url = "https://piapi.wakabashia.tj.cn"
 
-        # 禁用 Qt 原生右键菜单，让页面内 JS 的 contextmenu 逻辑接管
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        print("[WebContainer] Qt native context menu disabled; frontend contextmenu enabled")
+        # 不设置 NoContextMenu：该策略会拦截右键事件，导致页面 JS 收不到 contextmenu
+        # 通过 createStandardContextMenu 返回空菜单，仅屏蔽浏览器原生菜单
+        print("[WebContainer] standard context menu suppressed; frontend contextmenu enabled")
 
         self.channel = QWebChannel(self)
         self.page().setWebChannel(self.channel)
@@ -41,6 +41,10 @@ class WebContainerView(QWebEngineView):
         self.channel.registerObject('nativeBridge', self._native_bridge)
 
         self.load(QUrl(self.remote_url))
+
+    def createStandardContextMenu(self):
+        """禁用浏览器原生右键菜单，但不吞掉页面内的 contextmenu 事件。"""
+        return None
 
     def navigate_to(self, path: str):
         """路由跳转"""
