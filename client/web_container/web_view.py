@@ -1,7 +1,7 @@
 """QWebEngineView 封装：Vue SPA 容器"""
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QUrl, QObject
+from PySide6.QtCore import QUrl, QObject, Qt
 from .channel_bridge import NativeBridge
 from .native_api import NativeAPI
 
@@ -28,6 +28,10 @@ class WebContainerView(QWebEngineView):
             except Exception as e:
                 print(f"[WebContainer] 读取前端地址失败: {e}")
                 self.remote_url = "https://piapi.wakabashia.tj.cn"
+
+        # 禁用 Qt 原生右键菜单，让页面内 JS 的 contextmenu 逻辑接管
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        print("[WebContainer] Qt native context menu disabled; frontend contextmenu enabled")
 
         self.channel = QWebChannel(self)
         self.page().setWebChannel(self.channel)
