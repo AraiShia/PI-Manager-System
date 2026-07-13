@@ -1,8 +1,7 @@
 """QWebEngineView 封装：Vue SPA 容器"""
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, QEvent
 from PySide6.QtGui import QContextMenuEvent
 from .channel_bridge import NativeBridge
 from .native_api import NativeAPI
@@ -13,24 +12,6 @@ def build_web_url(remote_url: str, path: str) -> str:
     if path.startswith('//') or not path.startswith('/'):
         raise ValueError('Web 容器只允许站内路径')
     return f"{remote_url.rstrip('/')}{path}"
-
-
-class NoContextMenuPage(QWebEnginePage):
-    """禁用 Chromium 原生 context menu，让事件传到页面 JS。
-
-    Chromium 原生菜单在 QWebEnginePage::contextMenuEvent() 层弹出，
-    早于 QWebEngineView::contextMenuEvent()。
-    重写 QWebEnginePage.contextMenuEvent() 并 accept()，在更早层级拦截。
-    """
-
-    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        # 吞掉原生菜单（不调用 super），Chromium 仍会在页面 JS 层
-        # 触发 contextmenu 事件，前端监听器可正常收到。
-        print(
-            f"[WebContainer] QWebEnginePage.contextMenuEvent suppressed at "
-            f"{event.globalPos().x()},{event.globalPos().y()} reason={event.reason()}"
-        )
-        event.accept()
 
 
 class WebContainerView(QWebEngineView):
@@ -49,19 +30,37 @@ class WebContainerView(QWebEngineView):
                 print(f"[WebContainer] 读取前端地址失败: {e}")
                 self.remote_url = "https://piapi.wakabashia.tj.cn"
 
-        print("[WebContainer] NoContextMenuPage installed; frontend contextmenu will work")
+        print("[WebContainer] eventFilter will suppress native context menu")
 
-        # 替换默认 page 为禁用原生菜单的 page
-        custom_page = NoContextMenuPage(self.page().profile(), self)
-        self.channel = QWebChannel(custom_page)
-        custom_page.setWebChannel(self.channel)
-        self.setPage(custom_page)
+        # 在 page 上安装 eventFilter，拦截 QEvent.Type.ContextMenu
+        # 在 QWebEnginePage 层级捕捉并 accept()，比 QWebEngineView 更早拦截 Chromium 菜单
+        self.page().installEventFilter(self)
+
+        self.channel = QWebChannel(self)
+        self.page().setWebChannel(self.channel)
 
         self._native_api = NativeAPI(self)
         self._native_bridge = NativeBridge(self._native_api)
         self.channel.registerObject('nativeBridge', self._native_bridge)
 
         self.load(QUrl(self.remote_url))
+
+    def eventFilter(self, watched, event: QEvent) -> bool:
+        """在 QWebEnginePage 层级拦截 ContextMenu 事件，阻止 Chromium 原生菜单弹出。
+
+        QWebEnginePage 处理 ContextMenu 比 QWebEngineView 更早，
+        在此处 accept() 能在 Chromium 弹出菜单前拦截，
+        但仍允许事件继续派发到页面 JS，前端 contextmenu 监听器可收到。
+        """
+        if event.type() == QEvent.Type.ContextMenu:
+            ev = event
+            print(
+                f"[WebContainer] eventFilter ContextMenu at "
+                f"{ev.globalPos().x()},{ev.globalPos().y()} reason={ev.reason()}"
+            )
+            ev.accept()
+            return True  # 拦截，不传递给 Chromium
+        return super().eventFilter(watched, event)
 
     def navigate_to(self, path: str):
         """路由跳转"""
