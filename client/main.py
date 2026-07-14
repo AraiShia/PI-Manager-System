@@ -3511,7 +3511,7 @@ class MainWindow(QMainWindow):
 
     def open_settings(self):
         """打开设置对话框"""
-        dialog = SettingsDialog(self.api_client, self)
+        dialog = SettingsDialog(self.api_client, self, web_view=getattr(self, '_web_view', None))
         if dialog.exec():
             # 刷新全局变量
             self.load_globals()

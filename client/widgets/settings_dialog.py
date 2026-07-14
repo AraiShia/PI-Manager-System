@@ -60,9 +60,10 @@ class SettingsDialog(QDialog):
     - parent: QWidget, 父窗口
     """
 
-    def __init__(self, api_client, parent=None):
+    def __init__(self, api_client, parent=None, web_view=None):
         super().__init__(parent)
         self.api_client = api_client
+        self._web_view = web_view
         self.setWindowTitle("系统设置")
         self.setMinimumWidth(550)
         self.init_ui()
@@ -168,7 +169,51 @@ class SettingsDialog(QDialog):
         operator_group.setLayout(operator_layout)
         layout.addWidget(operator_group)
 
-        # ===== 区块3: 同步状态指示器（新增）=====
+        # ===== 区块3: 缓存管理（新增）=====
+        cache_group = QGroupBox("前端缓存")
+        cache_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #f97316;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 0 5px;
+                color: #ea580c;
+            }
+        """)
+        cache_layout = QVBoxLayout()
+        cache_info = QLabel(
+            "如果前端内容不更新（如样式错乱、数据不刷新），请清除前端缓存。"
+        )
+        cache_info.setStyleSheet("color: #64748b; font-size: 12px;")
+        cache_layout.addWidget(cache_info)
+        clear_cache_btn = QPushButton("🗑️ 清除前端缓存")
+        clear_cache_btn.setFixedWidth(150)
+        clear_cache_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f97316;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #ea580c; }
+        """)
+        clear_cache_btn.clicked.connect(self._clear_frontend_cache)
+        cache_layout.addWidget(clear_cache_btn)
+        self.cache_status_label = QLabel("")
+        self.cache_status_label.setStyleSheet("color: #64748b; font-size: 12px;")
+        cache_layout.addWidget(self.cache_status_label)
+        cache_group.setLayout(cache_layout)
+        layout.addWidget(cache_group)
+
+        # ===== 区块4: 同步状态指示器（新增）=====
         self.sync_status_label = QLabel("⏳ 正在加载配置...")
         self.sync_status_label.setStyleSheet("""
             QLabel {
@@ -433,6 +478,38 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self, "数据校验失败", str(ve))
         except Exception as e:
             QMessageBox.critical(self, "保存失败", f"发生未知错误: {e}")
+
+    def _clear_frontend_cache(self):
+        """清除 QWebEngine 前端缓存并刷新页面"""
+        try:
+            if self._web_view is None:
+                QMessageBox.warning(
+                    self,
+                    "提示",
+                    "当前无法清除缓存（Web 视图未初始化）。\n"
+                    "请重启客户端后再试。"
+                )
+                return
+
+            # 清除内存缓存
+            profile = self._web_view.page().profile()
+            cache_path = profile.cachePath()
+            profile.setCachePath("")  # 临时设为空，强制刷新缓存路径
+
+            # 触发清缓存并重新加载
+            self._web_view.page().runJavaScript("""
+                if ('caches' in window) {
+                    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+                }
+                location.reload(true);
+            """)
+
+            self.cache_status_label.setText("✅ 缓存已清除，页面正在刷新...")
+            QTimer.singleShot(3000, lambda: self.cache_status_label.setText(""))
+
+        except Exception as e:
+            print(f"[ERROR] 清除前端缓存失败: {e}")
+            self.cache_status_label.setText(f"❌ 清除失败: {e}")
 
     def _save_to_local(self, settings):
         """

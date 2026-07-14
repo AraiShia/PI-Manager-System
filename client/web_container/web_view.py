@@ -1,8 +1,8 @@
 """QWebEngineView 封装：Vue SPA 容器"""
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtCore import QUrl
+from PySide6.QtGui import QContextMenuEvent
 from .channel_bridge import NativeBridge
 from .native_api import NativeAPI
 
@@ -30,13 +30,9 @@ class WebContainerView(QWebEngineView):
                 print(f"[WebContainer] 读取前端地址失败: {e}")
                 self.remote_url = "https://piapi.wakabashia.tj.cn"
 
-        # 用 Qt 官方 API 禁用原生菜单，但页面 JS 的 contextmenu 事件不受影响
-        print("[WebContainer] disabling native context menu via Qt API")
-        self.page().settings().setAttribute(
-            QWebEngineSettings.WebAttribute.ContextMenuEnabled, False
-        )
+        print("[WebContainer] custom contextMenuEvent will suppress native menu")
 
-        # 保留默认 page，安装自定义 channel
+        # 保留默认 page，但安装自定义 channel
         self.channel = QWebChannel(self)
         self.page().setWebChannel(self.channel)
 
@@ -45,6 +41,19 @@ class WebContainerView(QWebEngineView):
         self.channel.registerObject('nativeBridge', self._native_bridge)
 
         self.load(QUrl(self.remote_url))
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        """吞掉 QWebEngineView 默认的 Chromium 右键菜单。
+
+        不调用 super().contextMenuEvent()，从而不会弹出原生菜单，
+        也不会阻止事件继续派发到 Chromium；Chromium 仍会在页面 JS 中
+        触发 contextmenu 事件，前端 addEventListener('contextmenu', ...) 即可收到。
+        """
+        print(
+            f"[WebContainer] contextMenuEvent suppressed at "
+            f"{event.globalPos().x()},{event.globalPos().y()} reason={event.reason()}"
+        )
+        event.accept()
 
     def navigate_to(self, path: str):
         """路由跳转"""
